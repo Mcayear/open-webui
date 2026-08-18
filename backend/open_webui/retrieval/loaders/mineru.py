@@ -1,15 +1,26 @@
+import base64
 import logging
+import mimetypes
 import os
+import posixpath
+import re
 import tempfile
 import time
 import zipfile
 from typing import List, Optional
+from urllib.parse import unquote
 
 import requests
 from fastapi import HTTPException, status
 from langchain_core.documents import Document
 
 log = logging.getLogger(__name__)
+
+
+MARKDOWN_IMAGE_PATTERN = re.compile(
+    r'!\[(?P<alt>[^\]]*)\]\((?P<url>[^\s)]+)(?:\s+["\'][^"\']*["\'])?\)',
+    re.IGNORECASE,
+)
 
 
 class MinerULoader:
@@ -465,6 +476,7 @@ class MinerULoader:
                                         detail=f'Markdown file in results ZIP is too large: {member.filename}',
                                     )
                             markdown_content = content.decode('utf-8')
+                            markdown_content = self._inline_zip_images(markdown_content, member, zip_ref)
                     except UnicodeDecodeError as e:
                         read_errors.append(f'{member.filename}: {e}')
                         log.warning(f'Failed to decode {member.filename}: {e}')
@@ -517,3 +529,45 @@ class MinerULoader:
 
         log.info(f'Successfully extracted markdown content ({len(markdown_content)} characters)')
         return markdown_content
+
+    @staticmethod
+    def _inline_zip_images(
+        markdown_content: str,
+        markdown_member: zipfile.ZipInfo,
+        zip_ref: zipfile.ZipFile,
+    ) -> str:
+        """Replace relative Markdown image paths with data URIs before the ZIP is deleted."""
+        archive_members = {
+            posixpath.normpath(member.filename.replace('\\', '/')): member
+            for member in zip_ref.infolist()
+            if not member.is_dir()
+        }
+        markdown_dir = posixpath.dirname(markdown_member.filename.replace('\\', '/'))
+
+        def replace_image(match: re.Match) -> str:
+            image_url = match.group('url')
+            if image_url.startswith(('data:', 'http://', 'https://', '/')):
+                return match.group(0)
+
+            decoded_url = unquote(image_url).replace('\\', '/')
+            image_path = posixpath.normpath(posixpath.join(markdown_dir, decoded_url))
+            if image_path == '..' or image_path.startswith('../'):
+                log.warning(f'Ignoring image path outside MinerU ZIP root: {image_url}')
+                return match.group(0)
+
+            image_member = archive_members.get(image_path)
+            content_type = mimetypes.guess_type(image_path)[0]
+            if image_member is None or not content_type or not content_type.startswith('image/'):
+                log.warning(f'Image referenced by MinerU markdown was not found in results ZIP: {image_url}')
+                return match.group(0)
+
+            try:
+                with zip_ref.open(image_member, 'r') as image_file:
+                    encoded_image = base64.b64encode(image_file.read()).decode('ascii')
+            except Exception as e:
+                log.warning(f'Failed to read image from MinerU results ZIP ({image_url}): {e}')
+                return match.group(0)
+
+            return f'![{match.group("alt")}](data:{content_type};base64,{encoded_image})'
+
+        return MARKDOWN_IMAGE_PATTERN.sub(replace_image, markdown_content)

@@ -142,6 +142,10 @@ logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
 
+SOURCE_MARKDOWN_IMAGE_PATTERN = re.compile(r'!\[(?P<alt>[^\]]*)\]\((?P<url>[^\s)]+)\)', re.IGNORECASE)
+INTERNAL_FILE_IMAGE_PATTERN = re.compile(r'^/api/v1/files/(?P<file_id>[^/]+)/content(?:\?.*)?$')
+
+
 async def publish_chat_finished_event(
     request: Request, user: UserModel, metadata: dict, title: str, content: str, output: list | None = None
 ):
@@ -830,12 +834,85 @@ def get_source_context(sources: list, source_ids: dict = None, include_content: 
     return context_string
 
 
+async def extract_source_images(context: str, user: UserModel) -> tuple[str, list[str]]:
+    """Resolve extracted Markdown images for multimodal model input."""
+    result_parts = []
+    image_data_urls = []
+    resolved_urls = {}
+    last_end = 0
+
+    for match in SOURCE_MARKDOWN_IMAGE_PATTERN.finditer(context):
+        image_url = match.group('url')
+        image_data_url = resolved_urls.get(image_url)
+
+        if image_url not in resolved_urls:
+            image_data_url = None
+            if image_url.startswith('data:image/'):
+                image_data_url = image_url
+            else:
+                internal_match = INTERNAL_FILE_IMAGE_PATTERN.match(image_url)
+                if internal_match:
+                    image_data_url = await get_image_base64_from_url(
+                        internal_match.group('file_id'),
+                        user=user,
+                    )
+            resolved_urls[image_url] = image_data_url
+
+        if not image_data_url:
+            continue
+
+        result_parts.append(context[last_end : match.start()])
+        if image_data_url not in image_data_urls:
+            image_data_urls.append(image_data_url)
+        image_number = image_data_urls.index(image_data_url) + 1
+        alt_text = match.group('alt').strip()
+        label = f'Extracted image {image_number}'
+        if alt_text:
+            label += f': {alt_text}'
+        result_parts.append(f'[{label}; attached to this message]')
+        last_end = match.end()
+
+    if not image_data_urls:
+        return context, []
+
+    result_parts.append(context[last_end:])
+    return ''.join(result_parts), image_data_urls
+
+
+def add_images_to_last_user_message(messages: list, image_data_urls: list[str]) -> list:
+    message = get_last_user_message_item(messages)
+    if message is None or not image_data_urls:
+        return messages
+
+    content = message.get('content', '')
+    if isinstance(content, str):
+        content = [{'type': 'text', 'text': content}]
+        message['content'] = content
+    elif not isinstance(content, list):
+        content = [{'type': 'text', 'text': str(content)}]
+        message['content'] = content
+
+    existing_urls = {
+        item.get('image_url', {}).get('url')
+        for item in content
+        if item.get('type') == 'image_url' and isinstance(item.get('image_url'), dict)
+    }
+    content.extend(
+        {'type': 'image_url', 'image_url': {'url': image_url}}
+        for image_url in image_data_urls
+        if image_url not in existing_urls
+    )
+    return messages
+
+
 async def apply_source_context_to_messages(
     request: Request,
     messages: list,
     sources: list,
     user_message: str,
     include_content: bool = True,
+    user: UserModel | None = None,
+    include_images: bool = True,
 ) -> list:
     """
     Build source context from citation sources and apply to messages.
@@ -850,22 +927,28 @@ async def apply_source_context_to_messages(
 
     context = get_source_context(sources, include_content=include_content)
 
+    image_data_urls = []
+    if include_images and user:
+        context, image_data_urls = await extract_source_images(context, user)
+
     context = context.strip()
     if not context:
         return messages
 
     if RAG_SYSTEM_CONTEXT:
-        return add_or_update_system_message(
+        messages = add_or_update_system_message(
             await rag_template(await Config.get('rag.template'), context, user_message),
             messages,
             append=True,
         )
     else:
-        return add_or_update_user_message(
+        messages = add_or_update_user_message(
             await rag_template(await Config.get('rag.template'), context, user_message),
             messages,
             append=False,
         )
+
+    return add_images_to_last_user_message(messages, image_data_urls)
 
 
 async def process_tool_result(
@@ -2951,7 +3034,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     # If context is not empty, insert it into the messages
     if sources and prompt:
-        form_data['messages'] = await apply_source_context_to_messages(request, form_data['messages'], sources, prompt)
+        vision_capable = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('vision', True)
+        form_data['messages'] = await apply_source_context_to_messages(
+            request,
+            form_data['messages'],
+            sources,
+            prompt,
+            user=user,
+            include_images=vision_capable,
+        )
 
     # If there are citations, add them to the data_items
     sources = [

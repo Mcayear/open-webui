@@ -1933,6 +1933,19 @@ async def process_file(
                     }
                     docs = await loader.aload(file.filename, file.meta.get('content_type'), file_path)
 
+                    if any('data:image/' in doc.page_content for doc in docs):
+                        from open_webui.utils.files import convert_markdown_base64_images
+
+                        image_metadata = {'source_file_id': file.id}
+                        for doc in docs:
+                            if 'data:image/' in doc.page_content:
+                                doc.page_content = await convert_markdown_base64_images(
+                                    request,
+                                    doc.page_content,
+                                    image_metadata,
+                                    user,
+                                )
+
                     docs = [
                         Document(
                             page_content=doc.page_content,
