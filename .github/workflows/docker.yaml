@@ -24,6 +24,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         platform:
           - arch: linux/amd64
@@ -311,6 +312,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
     needs: [merge]
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
