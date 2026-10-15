@@ -7,10 +7,10 @@ name: Python CI
 on:
   push:
     branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
+    paths: ['backend/**', 'tests/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
   pull_request:
     branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
+    paths: ['backend/**', 'tests/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
 
 concurrency:
   group: backend-${{ github.ref }}
@@ -41,3 +41,18 @@ jobs:
 
       - name: Detect logic errors
         run: ruff check --select=F --ignore=F401,F403,F405,F541,F811,F841 --output-format=github .
+
+      - name: Verify MinerU image preservation
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          names = {'requests', 'fastapi', 'langchain-core'}
+          dependencies = [dep for dep in project['project']['dependencies'] if dep.split('==')[0] in names]
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', *dependencies])
+          PY
+          python -m unittest discover -s tests -v

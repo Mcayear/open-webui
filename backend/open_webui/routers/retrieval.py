@@ -1687,6 +1687,7 @@ async def process_file(
                                     doc.page_content,
                                     image_metadata,
                                     user,
+                                    min_replacement_url_length=0,
                                 )
 
                     docs = [
