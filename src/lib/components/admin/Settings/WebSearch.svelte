@@ -19,6 +19,7 @@
 
 	let webSearchEngines = [
 		'ollama_cloud',
+		'deepseek',
 		'perplexity_search',
 		'searxng',
 		'yacy',
@@ -227,6 +228,8 @@
 								<option value={engine} disabled={$config?.features?.slim}>DDGS</option>
 							{:else if engine === 'serphouse'}
 								<option value={engine}>SERPHouse</option>
+							{:else if engine === 'deepseek'}
+								<option value={engine}>DeepSeek</option>
 							{:else}
 								<option value={engine}>{engine}</option>
 							{/if}
@@ -251,6 +254,20 @@
 										/>
 									</div>
 								</div>
+							</div>
+						</div>
+					{:else if webConfig.WEB_SEARCH_ENGINE === 'deepseek'}
+						<div class="mb-2.5 flex w-full flex-col">
+							<div>
+								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+									{$i18n.t('settings.admin.web.deepseekSearchApiKey.label')}
+								</div>
+
+								<SensitiveInput
+									variant="settings"
+									placeholder={$i18n.t('Enter DeepSeek Search API Key')}
+									bind:value={webConfig.DEEPSEEK_SEARCH_API_KEY}
+								/>
 							</div>
 						</div>
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'perplexity_search'}

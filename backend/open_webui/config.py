@@ -1246,6 +1246,8 @@ MOJEEK_SEARCH_API_KEY = os.getenv('MOJEEK_SEARCH_API_KEY', '')
 
 BOCHA_SEARCH_API_KEY = os.getenv('BOCHA_SEARCH_API_KEY', '')
 
+DEEPSEEK_SEARCH_API_KEY = os.getenv('DEEPSEEK_SEARCH_API_KEY', os.getenv('DEEPSEEK_API_KEY', ''))
+
 SERPSTACK_API_KEY = os.getenv('SERPSTACK_API_KEY', '')
 
 SERPSTACK_HTTPS = os.getenv('SERPSTACK_HTTPS', 'True').lower() == 'true'
@@ -3049,6 +3051,7 @@ DEFAULT_CONFIG = {
     'web.search.kagi_search_api_key': KAGI_SEARCH_API_KEY,
     'web.search.mojeek_search_api_key': MOJEEK_SEARCH_API_KEY,
     'web.search.bocha_search_api_key': BOCHA_SEARCH_API_KEY,
+    'web.search.deepseek_search_api_key': DEEPSEEK_SEARCH_API_KEY,
     'web.search.serpstack_api_key': SERPSTACK_API_KEY,
     'web.search.serpstack_https': SERPSTACK_HTTPS,
     'web.search.serper_api_key': SERPER_API_KEY,

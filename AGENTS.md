@@ -34,3 +34,11 @@
 - **实现位置**：`backend/open_webui/routers/openai.py` 的 `convert_to_responses_payload` 中推理努力转换代码。
 - **验证**：`python -m unittest discover -s tests -p test_openai_responses.py -v`，仅需 Python 标准库。8 项测试覆盖流式/非流式请求、自定义努力值、原生选项保留与优先级、空值和 Chat Completions 兼容。2026-10-16 实测修复后两种请求均返回 HTTP 200 并完成，返回的 `reasoning.effort` 均为 `xhigh`。2026-10-17 合并后，8 项测试在 Python 3.11/3.12 均通过；从模型高级配置经实际路由到最终提供商请求的 12 个隔离场景均通过，覆盖 Responses/Chat Completions、流式/非流式、原生 summary 保留和原生 effort 优先。本次未重复调用真实模型服务。升级时仍须验证从模型高级配置到最终 Responses 请求的实际路径；不要将 API 密钥写入文档或测试。
 - **清理条件**：目标上游已把高级配置中的推理努力正确传递为 Responses 原生参数，且上述场景通过后，移除本地映射代码，保留上游转换实现；同步调整只依赖旧函数或旧路径的测试，避免重复转换或覆盖原生配置。
+
+## 本地功能：DeepSeek 搜索提供商
+
+- **功能与参考**：工具“联网搜索”支持将 DeepSeek 作为搜索引擎，调用 DeepSeek Search API（`POST https://api.deepseek.com/v1/tools/search`），参考 [DeepSeek 搜索文档](https://api-docs.deepseek.com/zh-cn/guides/search)。请求携带 Bearer API 密钥、用户查询、`count`（限制为 1 至 50）和 `need_content: true`；结果优先使用 `summary`，其次使用 `snippet` 或 `content`，并沿用现有域名过滤逻辑。
+- **配置**：优先读取 `DEEPSEEK_SEARCH_API_KEY`，未设置时兼容读取 `DEEPSEEK_API_KEY`。管理界面在联网搜索引擎列表中提供 DeepSeek，并使用敏感 API 密钥输入框。
+- **实现位置**：`backend/open_webui/retrieval/web/deepseek.py` 的 API 客户端与结果转换；`backend/open_webui/config.py` 的配置项；`backend/open_webui/routers/retrieval.py` 的提供商注册；`src/lib/components/admin/Settings/WebSearch.svelte` 及 `src/lib/i18n/locales/{en-US,zh-CN}/translation.json` 的管理界面和翻译；`tests/test_deepseek_search.py` 的回归测试；`README.md` 的配置说明。
+- **验证**：运行 `python -m unittest discover -s tests -p test_deepseek_search.py -v`、`uvx --from ruff ruff check backend/open_webui/retrieval/web/deepseek.py tests/test_deepseek_search.py`、相关 Python 编译检查、`npx prettier --check`（修改的前端和翻译文件）以及 `git diff --check`。测试覆盖请求认证、参数范围、结果字段回退、域名过滤、错误响应和空结果；测试不得写入真实 API 密钥。
+- **上游核对**：已在上游 `dev` 提交 `079fb19e7`（2026-10-18 核对）原始实现中搜索 DeepSeek 提供商、配置和管理界面，未发现对应支持，因此保留本地实现。后续合并或升级上游时，必须针对新的目标 `dev` 提交重新检查 API 路径、配置回退、提供商注册、界面选项和行为测试；若上游覆盖其中部分内容，只移除已被覆盖的本地接入，并保留必要的回归测试。
