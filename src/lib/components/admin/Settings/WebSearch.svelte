@@ -52,6 +52,7 @@
 		'openserp'
 	];
 	let webLoaderEngines = [
+		'deepseek',
 		'playwright',
 		'firecrawl',
 		'tavily',
@@ -1276,7 +1277,7 @@
 						<option value="">{$i18n.t('Default')}</option>
 						{#each webLoaderEngines as engine}
 							<option value={engine} disabled={$config?.features?.slim && engine === 'playwright'}
-								>{engine}</option
+								>{engine === 'deepseek' ? 'DeepSeek' : engine}</option
 							>
 						{/each}
 					</SettingsSelect>
@@ -1298,7 +1299,17 @@
 					{/if}
 				{/if}
 
-				{#if ['', 'safe_web', 'exa'].includes(webConfig.WEB_LOADER_ENGINE)}
+				{#if webConfig.WEB_LOADER_ENGINE === 'deepseek' && webConfig.WEB_SEARCH_ENGINE !== 'deepseek'}
+					<AdminSettingField label={$i18n.t('settings.admin.web.deepseekSearchApiKey.label')}>
+						<SensitiveInput
+							variant="settings"
+							placeholder={$i18n.t('Enter DeepSeek Search API Key')}
+							bind:value={webConfig.DEEPSEEK_SEARCH_API_KEY}
+						/>
+					</AdminSettingField>
+				{/if}
+
+				{#if ['', 'safe_web', 'exa', 'deepseek'].includes(webConfig.WEB_LOADER_ENGINE)}
 					<AdminSettingField
 						label={$i18n.t('settings.admin.web.timeout.label')}
 						description={$i18n.t('settings.admin.web.timeout.description')}

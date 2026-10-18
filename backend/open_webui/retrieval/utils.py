@@ -192,6 +192,7 @@ async def get_content_from_url(request, url: str, *, config: dict | None = None)
             'rag.document_intelligence_key',
             'rag.document_intelligence_model',
             'web.loader.ssl_verification',
+            'web.search.deepseek_search_api_key',
             'web.search.exa_api_key',
             'rag.external_document_loader_api_key',
             'rag.external_document_loader_headers',

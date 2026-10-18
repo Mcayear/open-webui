@@ -475,6 +475,77 @@ class SafeExaLoader(BaseLoader, RateLimitMixin):
             yield doc
 
 
+class SafeDeepSeekLoader(BaseLoader, RateLimitMixin):
+    def __init__(
+        self,
+        web_paths: Union[str, Sequence[str]],
+        api_key: str,
+        timeout: Optional[str] = None,
+        verify_ssl: bool = True,
+        trust_env: bool = False,
+        requests_per_second: Optional[float] = None,
+        continue_on_failure: bool = True,
+    ):
+        if not api_key or not api_key.strip():
+            raise ValueError('DeepSeek web loader requires a DEEPSEEK_SEARCH_API_KEY')
+        self.web_paths = [web_paths] if isinstance(web_paths, str) else list(web_paths)
+        self.api_key = api_key
+        try:
+            request_timeout = float(timeout)
+        except (TypeError, ValueError):
+            request_timeout = 60
+        self.timeout = request_timeout if math.isfinite(request_timeout) and request_timeout > 0 else 60
+        self.verify_ssl = verify_ssl
+        self.trust_env = trust_env
+        self.requests_per_second = min(requests_per_second, 5) if requests_per_second and requests_per_second > 0 else 5
+        self.last_request_time = None
+        self.continue_on_failure = continue_on_failure
+
+    def lazy_load(self) -> Iterator[Document]:
+        loaded = 0
+        with requests.Session() as session:
+            session.trust_env = self.trust_env
+            session.verify = self.verify_ssl
+            session.headers.update({'Authorization': f'Bearer {self.api_key}'})
+            for url in self.web_paths:
+                self._sync_wait_for_rate_limit()
+                try:
+                    response = session.post(
+                        'https://api.deepseek.com/v1/tools/fetch',
+                        json={'url': url},
+                        timeout=self.timeout,
+                        allow_redirects=False,
+                    )
+                    if response.status_code in (401, 402, 403):
+                        raise PermissionError(f'DeepSeek web loader request denied (HTTP {response.status_code})')
+                    response.raise_for_status()
+                    data = response.json()
+                    content = data.get('content') if isinstance(data, dict) else None
+                    if not isinstance(content, str) or not content.strip():
+                        raise ValueError('DeepSeek web loader returned no page content')
+                except PermissionError:
+                    raise
+                except (requests.RequestException, ValueError) as error:
+                    log.warning('DeepSeek web loader request failed (%s)', type(error).__name__)
+                    if not self.continue_on_failure:
+                        raise ValueError('DeepSeek web loader request failed') from None
+                    continue
+
+                metadata = {'source': url}
+                if isinstance(data.get('title'), str):
+                    metadata['title'] = data['title']
+                loaded += 1
+                yield Document(page_content=content, metadata=metadata)
+
+        if not loaded:
+            raise ValueError('DeepSeek web loader could not load any page content')
+
+    async def alazy_load(self) -> AsyncIterator[Document]:
+        docs = await run_in_threadpool(lambda: list(self.lazy_load()))
+        for doc in docs:
+            yield doc
+
+
 class URLProcessingMixin:
     async def _verify_ssl_cert(self, url: str) -> bool:
         """Verify SSL certificate for a URL."""
@@ -1224,6 +1295,11 @@ def get_web_loader(
         web_loader_args['api_key'] = cfg('web.search.exa_api_key')
         web_loader_args['timeout'] = web_loader_timeout
 
+    if engine == 'deepseek':
+        WebLoaderClass = SafeDeepSeekLoader
+        web_loader_args['api_key'] = cfg('web.search.deepseek_search_api_key')
+        web_loader_args['timeout'] = web_loader_timeout
+
     if engine == 'microsoft_web_iq':
         WebLoaderClass = SafeMicrosoftWebIQLoader
         web_loader_args['api_base_url'] = cfg('web.search.microsoft_web_iq_api_base_url')
@@ -1253,5 +1329,5 @@ def get_web_loader(
     else:
         raise ValueError(
             f'Invalid WEB_LOADER_ENGINE: {engine}. '
-            "Please set it to 'safe_web', 'playwright', 'firecrawl', 'tavily', 'exa', 'external', or 'microsoft_web_iq'."
+            "Please set it to 'safe_web', 'playwright', 'firecrawl', 'tavily', 'exa', 'deepseek', 'external', or 'microsoft_web_iq'."
         )
