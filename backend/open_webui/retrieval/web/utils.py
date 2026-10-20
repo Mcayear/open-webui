@@ -476,6 +476,36 @@ class SafeExaLoader(BaseLoader, RateLimitMixin):
 
 
 class SafeDeepSeekLoader(BaseLoader, RateLimitMixin):
+    @staticmethod
+    def _normalize_content(content: str) -> str:
+        """Parse Fetch Markdown into readable text for retrieval and model input."""
+        from bs4 import BeautifulSoup
+        from markdown_it import MarkdownIt
+
+        html = MarkdownIt('commonmark').enable('table').render(content)
+        soup = BeautifulSoup(html, 'html.parser')
+        for whitespace in soup.find_all(string=True):
+            if whitespace.isspace() and whitespace.parent.name in {'blockquote', 'ul', 'ol'}:
+                whitespace.extract()
+        for link in soup.find_all('a', href=True):
+            if link.get_text() != link['href']:
+                link.append(f' ({link["href"]})')
+        for image in soup.find_all('img', src=True):
+            image.replace_with(f'{image.get("alt", "")} ({image["src"]})')
+        for table in soup.find_all('table'):
+            rows = [
+                ' | '.join(cell.get_text() for cell in row.find_all(['th', 'td'], recursive=False))
+                for row in table.find_all('tr')
+            ]
+            table.replace_with('\n'.join(rows) + '\n\n')
+        for block in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li']):
+            block.insert_after('\n')
+        for line_break in soup.find_all('br'):
+            if not isinstance(line_break.next_sibling, str) or not line_break.next_sibling.startswith('\n'):
+                line_break.insert_after('\n')
+            line_break.decompose()
+        return soup.get_text().strip()
+
     def __init__(
         self,
         web_paths: Union[str, Sequence[str]],
@@ -522,6 +552,9 @@ class SafeDeepSeekLoader(BaseLoader, RateLimitMixin):
                     data = response.json()
                     content = data.get('content') if isinstance(data, dict) else None
                     if not isinstance(content, str) or not content.strip():
+                        raise ValueError('DeepSeek web loader returned no page content')
+                    content = self._normalize_content(content)
+                    if not content:
                         raise ValueError('DeepSeek web loader returned no page content')
                 except PermissionError:
                     raise

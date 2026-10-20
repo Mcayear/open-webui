@@ -75,6 +75,7 @@ msoffcrypto-tool==6.0.0
 unstructured==0.22.31
 
 Markdown==3.10.2
+markdown-it-py==4.2.0
 beautifulsoup4==4.14.3
 lxml==6.1.1
 pypandoc==1.17

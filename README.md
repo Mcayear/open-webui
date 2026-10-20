@@ -59,7 +59,7 @@ For more information, be sure to check out our [Open WebUI Documentation](https:
 
 - 🔍 **Web Search for RAG**: Search the web through dozens of providers including `SearXNG`, `Google PSE`, `Brave Search`, `Kagi`, `Mojeek`, `Tavily`, `Perplexity`, `DeepSeek`, `Firecrawl`, `serpstack`, `serper`, `Serply`, `DuckDuckGo`, `SearchApi`, `SerpApi`, `Bing`, `Jina`, `Exa`, `Sougou`, `Azure AI Search`, and `Ollama Cloud`, injecting results directly into the conversation.
 
-- 🌐 **Web Browsing Capability**: Pull websites into chat with the `#` command followed by a URL, or let the model fetch them on its own when needed. DeepSeek Fetch is available as a web loader with `WEB_LOADER_ENGINE=deepseek`, sharing `DEEPSEEK_SEARCH_API_KEY` (or the `DEEPSEEK_API_KEY` environment fallback) with DeepSeek Search.
+- 🌐 **Web Browsing Capability**: Pull websites into chat with the `#` command followed by a URL, or let the model fetch them on its own when needed. DeepSeek Fetch is available as a web loader with `WEB_LOADER_ENGINE=deepseek`, sharing `DEEPSEEK_SEARCH_API_KEY` (or the `DEEPSEEK_API_KEY` environment fallback) with DeepSeek Search. Its Markdown response is parsed into readable text before retrieval or model input, preserving code content, table cell separators, and link and image URLs.
 
 - 🎨 **Image Generation & Editing**: Create and edit images with multiple engines including OpenAI DALL·E, Gemini, ComfyUI (local), and AUTOMATIC1111 (local), supporting both generation and prompt-based editing.
 

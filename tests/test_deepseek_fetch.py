@@ -86,7 +86,7 @@ class DeepSeekFetchTest(unittest.TestCase):
         self.rate_wait = rate_patch.start()
         self.addCleanup(rate_patch.stop)
 
-    def test_factory_loads_markdown_with_title_and_original_source(self):
+    def test_factory_parses_markdown_with_title_and_original_source(self):
         documents = get_web_loader('https://example.com/article', self.config).load()
 
         self.session.post.assert_called_once_with(
@@ -102,7 +102,7 @@ class DeepSeekFetchTest(unittest.TestCase):
             documents,
             [
                 Document(
-                    page_content='# Article\n\n正文。',
+                    page_content='Article\n\n正文。',
                     metadata={'source': 'https://example.com/article', 'title': 'Article'},
                 )
             ],
@@ -115,6 +115,114 @@ class DeepSeekFetchTest(unittest.TestCase):
 
         self.assertEqual([document.metadata['source'] for document in documents], urls)
         self.assertEqual(self.rate_wait.call_count, 2)
+
+    def test_weather_page_punctuation_is_unescaped_before_document_creation(self):
+        content = (
+            r'\# 汨罗2026年10月份天气历史记录'
+            '\n\n'
+            r'北风 \<3级 湿度 96\% 发布时间：2026\-10\-20 13\:51\:34'
+            '\n\n'
+            r'日期 \| 天气 \| 温度'
+            '\n'
+            r'\-\-\-\|\-\-\-\|\-\-\-'
+            '\n'
+            r'2026\-10\-20 \| 小雨 \| 15℃ ～ 20℃'
+        )
+        self.session.post.return_value = response({'title': '天气历史记录', 'content': content})
+
+        document = get_web_loader('https://example.com/weather', self.config).load()[0]
+
+        self.assertEqual(
+            document.page_content,
+            '# 汨罗2026年10月份天气历史记录\n\n'
+            '北风 <3级 湿度 96% 发布时间：2026-10-20 13:51:34\n\n'
+            '日期 | 天气 | 温度\n'
+            '---|---|---\n'
+            '2026-10-20 | 小雨 | 15℃ ～ 20℃',
+        )
+        self.assertEqual(document.metadata, {'source': 'https://example.com/weather', 'title': '天气历史记录'})
+
+    def test_async_loading_also_normalizes_fetch_content(self):
+        self.session.post.return_value = response({'content': r'更新时间：2026\-10\-20 06\:31'})
+
+        documents = asyncio.run(get_web_loader('https://example.com', self.config).aload())
+
+        self.assertEqual(documents[0].page_content, '更新时间：2026-10-20 06:31')
+
+    def test_code_keeps_its_backslashes_while_surrounding_text_is_normalized(self):
+        code_samples = (
+            (r'`2026\-10\-20 \d+\.\d+`', r'2026\-10\-20 \d+\.\d+'),
+            (r'``value`with\:punctuation``', r'value`with\:punctuation'),
+            ('`multi\nline \\# code`', 'multi line \\# code'),
+            ('```python\npattern = r"\\d+\\.\\d+"\n```', 'pattern = r"\\d+\\.\\d+"'),
+            ('````markdown\n```\n\\# literal\n```\n`````', '```\n\\# literal\n```'),
+            ('~~~text\n2026\\-10\\-20 06\\:31\n~~~~', r'2026\-10\-20 06\:31'),
+            ('   ```text\n\\# literal\n   ```', r'\# literal'),
+            ('    indented \\# code\n\n    more \\: code', 'indented \\# code\n\nmore \\: code'),
+            ('\tindented \\# code', r'indented \# code'),
+            ('> ```text\n> \\# literal\n> ```', r'\# literal'),
+        )
+        for code, expected in code_samples:
+            with self.subTest(code=code):
+                self.session.post.return_value = response({'content': f'\\# Before\n\n{code}\n\nAfter \\%'})
+
+                document = get_web_loader('https://example.com', self.config).load()[0]
+
+                self.assertEqual(document.page_content, f'# Before\n\n{expected}\n\nAfter %')
+
+    def test_unclosed_fenced_code_is_preserved_until_end_of_content(self):
+        content = '\\# Before\n\n```text\n\\# literal\n2026\\-10\\-20'
+        self.session.post.return_value = response({'content': content})
+
+        document = get_web_loader('https://example.com', self.config).load()[0]
+
+        self.assertEqual(document.page_content, '# Before\n\n\\# literal\n2026\\-10\\-20')
+
+    def test_literal_backslashes_and_non_markdown_escapes_follow_markdown_semantics(self):
+        literal = r'中文 C:\new\test.md \d+\w \n \t \u4e2d'
+        self.session.post.return_value = response({'content': literal + r' \\server\share \\# \\: 96\%'})
+
+        document = get_web_loader('https://example.com', self.config).load()[0]
+
+        self.assertEqual(document.page_content, literal + r' \server\share \# \: 96%')
+
+    def test_escaped_markdown_is_readable_without_reparsing_as_formatting(self):
+        self.session.post.return_value = response(
+            {'content': r'\#\#\# 标题：\*原样星号\* \[文字\]\(地址\) \<tag\> &amp; &lt;3'}
+        )
+
+        document = get_web_loader('https://example.com', self.config).load()[0]
+
+        self.assertEqual(document.page_content, '### 标题：*原样星号* [文字](地址) <tag> & <3')
+
+    def test_links_images_and_table_cells_keep_text_and_urls(self):
+        self.session.post.return_value = response(
+            {
+                'content': '[详情](https://example.com/a\\_b?q=x\\*y) 和 <https://example.com/>\n\n'
+                '![天气图](https://example.com/weather.png)\n\n'
+                '| 日期 | 天气 |\n| --- | --- |\n| 2026-10-20 | **小雨** |'
+            }
+        )
+
+        document = get_web_loader('https://example.com', self.config).load()[0]
+
+        self.assertEqual(
+            document.page_content,
+            '详情 (https://example.com/a_b?q=x*y) 和 https://example.com/\n\n'
+            '天气图 (https://example.com/weather.png)\n\n'
+            '日期 | 天气\n2026-10-20 | 小雨',
+        )
+
+    def test_paragraphs_lists_and_hard_line_breaks_remain_separated(self):
+        self.session.post.return_value = response(
+            {'content': '第一段 **加粗**\n\n- 第一项\n- 第二项\n\n换行  \n下一行'}
+        )
+
+        document = get_web_loader('https://example.com', self.config).load()[0]
+
+        self.assertIn('第一段 加粗\n\n', document.page_content)
+        self.assertIn('第一项\n第二项', document.page_content)
+        self.assertIn('换行\n下一行', document.page_content)
 
     def test_missing_title_is_optional(self):
         self.session.post.return_value = response({'content': 'Body'})
@@ -177,7 +285,15 @@ class DeepSeekFetchTest(unittest.TestCase):
                 self.session.post.assert_called_once()
 
     def test_empty_and_malformed_responses_fail_instead_of_yielding_empty_documents(self):
-        for payload in ([], {}, {'content': None}, {'content': ''}, {'content': '  '}, {'content': 123}):
+        for payload in (
+            [],
+            {},
+            {'content': None},
+            {'content': ''},
+            {'content': '  '},
+            {'content': 123},
+            {'content': '---'},
+        ):
             with self.subTest(payload=payload):
                 self.session.post.return_value = response(payload)
                 with self.assertRaisesRegex(ValueError, 'could not load any page content'):
@@ -201,6 +317,9 @@ class DeepSeekFetchTest(unittest.TestCase):
             loader.load()
 
     def test_chat_url_fetch_loads_the_shared_api_key_from_config(self):
+        self.session.post.return_value = response(
+            {'title': 'Article', 'content': '\\#\\#\\# Article\n\n更新时间：06\\:31'}
+        )
         retrieval_path = root / 'backend/open_webui/retrieval/utils.py'
         retrieval_source = ast.parse(retrieval_path.read_text(encoding='utf-8'))
         fetch_function = next(
@@ -229,8 +348,28 @@ class DeepSeekFetchTest(unittest.TestCase):
         content, documents = asyncio.run(fetch_namespace['get_content_from_url'](None, 'https://example.com/article'))
 
         self.assertIn('web.search.deepseek_search_api_key', config_store.get_many.call_args.args)
-        self.assertEqual(content, '# Article\n\n正文。')
+        self.assertEqual(content, '### Article\n\n更新时间：06:31')
         self.assertEqual(documents[0].metadata['source'], 'https://example.com/article')
+
+        builtin_path = root / 'backend/open_webui/tools/builtin.py'
+        builtin_source = ast.parse(builtin_path.read_text(encoding='utf-8'))
+        tool_function = next(
+            node for node in builtin_source.body if isinstance(node, ast.AsyncFunctionDef) and node.name == 'fetch_url'
+        )
+        tool_namespace = {
+            'Config': SimpleNamespace(get=AsyncMock(return_value=0)),
+            'JSONCodec': json,
+            'Request': object,
+            'get_content_from_url': fetch_namespace['get_content_from_url'],
+            'log': namespace['log'],
+        }
+        exec(compile(ast.Module(body=[tool_function], type_ignores=[]), str(builtin_path), 'exec'), tool_namespace)
+
+        tool_result = asyncio.run(tool_namespace['fetch_url']('https://example.com/article', __request__=object()))
+
+        self.assertEqual(tool_result, content)
+        self.assertNotIn(r'\#', tool_result)
+        self.assertNotIn(r'\:', tool_result)
 
 
 if __name__ == '__main__':
