@@ -26,11 +26,6 @@ ARG GID=0
 
 ######## WebUI frontend ########
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
-ARG BUILD_HASH
-ARG BUILD_CHANNEL
-ARG USE_SLIM
-ARG UID
-ARG GID
 
 # Set Node.js options (heap limit Allocation failed - JavaScript heap out of memory)
 # ENV NODE_OPTIONS="--max-old-space-size=4096"
@@ -44,6 +39,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --force
 
 COPY . .
+ARG BUILD_HASH
+ARG BUILD_CHANNEL
+ARG USE_SLIM
 ENV APP_BUILD_HASH=${BUILD_HASH}
 ENV APP_BUILD_CHANNEL=${BUILD_CHANNEL}
 RUN npm run build && \
@@ -51,6 +49,8 @@ RUN npm run build && \
 
 # Prepare backend ownership before the final copy so static assets occupy one layer.
 # Group 0 write access lets arbitrary OpenShift UIDs update these assets at startup.
+ARG UID
+ARG GID
 RUN chown -R $UID:$GID /app/backend && \
     chgrp -R 0 /app/backend/open_webui/static && \
     chmod -R g=u /app/backend/open_webui/static
