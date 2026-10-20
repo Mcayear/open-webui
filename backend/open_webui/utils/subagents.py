@@ -45,6 +45,56 @@ _foreground_semaphore: asyncio.Semaphore | None = None
 _parent_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
 
+def _file_reference_values(file: dict) -> set[str]:
+    if not isinstance(file, dict):
+        return set()
+
+    return {
+        str(value)
+        for value in (
+            file.get('id'),
+            file.get('url'),
+            file.get('file', {}).get('id') if isinstance(file.get('file'), dict) else None,
+        )
+        if value
+    }
+
+
+def _get_attached_files(metadata: dict) -> list[dict]:
+    """Return the current message's attachments from all request representations."""
+    user_message = metadata.get('user_message') or {}
+    sources = (
+        metadata.get('files') or [],
+        user_message.get('files') if isinstance(user_message, dict) else [],
+    )
+    attached_files = []
+    seen_files = set()
+
+    for source in sources:
+        if not isinstance(source, (list, tuple)):
+            continue
+        for file in source:
+            if not isinstance(file, dict):
+                continue
+            file_id = file.get('id') or (file.get('file', {}).get('id') if isinstance(file.get('file'), dict) else None)
+            key = ('id', str(file_id)) if file_id else ('url', str(file.get('url'))) if file.get('url') else None
+            key = key or ('value', JSONCodec.dumps(file, ensure_ascii=False, sort_keys=True))
+            if key in seen_files:
+                continue
+            seen_files.add(key)
+            attached_files.append(file)
+
+    return attached_files
+
+
+def _select_requested_files(metadata: dict, file_ids: set[str]) -> tuple[list[dict], list[str]]:
+    """Select only requested attachments and report IDs absent from the chat message."""
+    attached_files = _get_attached_files(metadata)
+    selected_files = [copy.deepcopy(file) for file in attached_files if _file_reference_values(file) & file_ids]
+    found_file_ids = set().union(*(_file_reference_values(file) for file in selected_files))
+    return selected_files, sorted(file_ids - found_file_ids)
+
+
 async def _build_request(source: Request, user_id: str, *, internal: bool) -> Request:
     scope = {
         'type': 'http',
@@ -345,24 +395,7 @@ async def delegate(
         return 'Error: sub-agents are unavailable for direct connections.'
     if file_ids:
         requested_file_ids = {str(file_id) for file_id in file_ids if file_id}
-        run['files'] = [
-            copy.deepcopy(file)
-            for file in metadata.get('files') or []
-            if str(file.get('id') or '') in requested_file_ids
-            or str(file.get('url') or '') in requested_file_ids
-            or (isinstance(file.get('file'), dict) and str(file.get('file', {}).get('id') or '') in requested_file_ids)
-        ]
-        found_file_ids = {
-            str(value)
-            for file in run['files']
-            for value in (
-                file.get('id'),
-                file.get('url'),
-                file.get('file', {}).get('id') if isinstance(file.get('file'), dict) else None,
-            )
-            if value
-        }
-        missing_file_ids = sorted(requested_file_ids - found_file_ids)
+        run['files'], missing_file_ids = _select_requested_files(metadata, requested_file_ids)
         if missing_file_ids:
             return f'Error: file_ids not attached or unavailable: {", ".join(missing_file_ids)}'
     else:
