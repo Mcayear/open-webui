@@ -43,6 +43,14 @@
 - **验证**：使用隔离分享接口运行原始/修复版本对照，原始版本出现约 2800 次重复请求，修复版本只请求 1 次；修复版本向上滚动后位置稳定，继续加载较早消息、切换分享页和消息链接定位均通过，页面无运行时异常。`npx prettier --check src/lib/components/chat/Messages.svelte 'src/routes/s/[id]/+page.svelte'` 和 `git diff --check` 通过；完整 `npm run check` 仍受仓库既有类型错误影响。
 - **清理条件**：上游原始分享聊天初始化不再因 `history` 更新重复执行，并覆盖用户滚动中断自动置底后，按实际覆盖范围移除本地初始化和补滚接入，保留必要的行为回归验证。
 
+## 5. Sub-agent 转发当前消息中的图片附件
+
+- **问题与上游状态**：聊天页会把图片保存在 `metadata['user_message']['files']`，而 `metadata['files']` 可能只包含文档类附件。原始 `delegate` 只在 `metadata['files']` 中按 `file_ids` 查找，因此主模型可见的图片 ID 会被错误报告为不可用，sub-agent 在创建前即失败。2026-10-20 核对上游 `dev` 原始提交 `079fb19e7`，其实现仍只查 `metadata['files']`，未覆盖当前消息附件；保留本地修复。
+- **本地行为**：按 `file_ids` 从顶层附件及当前用户消息附件合并查找，按文件 ID/URL 去重，只向 sub-agent 转发所请求的附件，并继续逐项报告确实缺失的 ID。选中的图片随 sub-agent 用户消息和内部完成请求保存，使既有消息加载流程能够将图片 URL 转成模型视觉输入。
+- **实现位置**：`backend/open_webui/utils/subagents.py` 的 `_file_reference_values`、`_get_attached_files`、`_select_requested_files` 及 `delegate` 的附件选择；`tests/test_subagents_files.py`。
+- **验证**：运行 `python -m unittest discover -s tests -p test_subagents_files.py -v`、`python -m py_compile backend/open_webui/utils/subagents.py tests/test_subagents_files.py` 和 `git diff --check`。覆盖仅存在于当前用户消息的图片、顶层附件兼容、`id`/`url`/嵌套 `file.id` 匹配、重复引用、仅转发请求附件及准确报告缺失 ID。确认附件进入 sub-agent 的 `user_message.files`、聊天记录及内部完成请求；上游核对使用 `079fb19e7` 的原始实现，而非本地修复后的代码。
+- **清理条件**：目标上游原始 `delegate` 支持从当前用户消息附件查找 `file_ids`，且图片经过 sub-agent 聊天持久化后进入模型视觉输入时，按实际覆盖范围移除本地选择逻辑及其专属测试，保留必要行为回归验证。
+
 ## 本地功能：DeepSeek 搜索与网页加载
 
 - **功能与参考**：工具“联网搜索”支持将 DeepSeek 作为搜索引擎，调用 DeepSeek Search API（`POST https://api.deepseek.com/v1/tools/search`），参考 [DeepSeek 搜索文档](https://api-docs.deepseek.com/zh-cn/guides/search)。请求携带 Bearer API 密钥、用户查询、`count`（限制为 1 至 50）和 `need_content: true`；结果优先使用 `summary`，其次使用 `snippet` 或 `content`，并沿用现有域名过滤逻辑。
