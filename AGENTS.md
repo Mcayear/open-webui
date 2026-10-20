@@ -35,6 +35,14 @@
 - **验证**：`python -m unittest discover -s tests -p test_openai_responses.py -v`，仅需 Python 标准库。8 项测试覆盖流式/非流式请求、自定义努力值、原生选项保留与优先级、空值和 Chat Completions 兼容。2026-10-16 实测修复后两种请求均返回 HTTP 200 并完成，返回的 `reasoning.effort` 均为 `xhigh`。2026-10-17 合并后，8 项测试在 Python 3.11/3.12 均通过；从模型高级配置经实际路由到最终提供商请求的 12 个隔离场景均通过，覆盖 Responses/Chat Completions、流式/非流式、原生 summary 保留和原生 effort 优先。本次未重复调用真实模型服务。升级时仍须验证从模型高级配置到最终 Responses 请求的实际路径；不要将 API 密钥写入文档或测试。
 - **清理条件**：目标上游已把高级配置中的推理努力正确传递为 Responses 原生参数，且上述场景通过后，移除本地映射代码，保留上游转换实现；同步调整只依赖旧函数或旧路径的测试，避免重复转换或覆盖原生配置。
 
+## 4. 分享聊天页面滚动置底
+
+- **问题与上游状态**：分享聊天路由的响应式初始化块直接引用 `history` 和消息组件，在加载聊天后更新 `history` 会再次触发初始化，重复请求分享内容并反复置底；`v0.12.3` 原始实现未覆盖。2026-10-20 在提交 `91ea4e342` 的原始路由和消息组件上用隔离分享接口复现，短时间内重复请求并阻止向上滚动；保留本地修复。
+- **本地行为**：分享聊天同一 URL 只初始化一次；滚动容器同步更新 `autoScroll`，用户向上滚动后停止延迟补滚和自动置底；消息链接定位和页面切换继续可用。
+- **实现位置**：`src/routes/s/[id]/+page.svelte` 的初始化函数和滚动处理；`src/lib/components/chat/Messages.svelte` 的延迟补滚检查。
+- **验证**：使用隔离分享接口运行原始/修复版本对照，原始版本出现约 2800 次重复请求，修复版本只请求 1 次；修复版本向上滚动后位置稳定，继续加载较早消息、切换分享页和消息链接定位均通过，页面无运行时异常。`npx prettier --check src/lib/components/chat/Messages.svelte 'src/routes/s/[id]/+page.svelte'` 和 `git diff --check` 通过；完整 `npm run check` 仍受仓库既有类型错误影响。
+- **清理条件**：上游原始分享聊天初始化不再因 `history` 更新重复执行，并覆盖用户滚动中断自动置底后，按实际覆盖范围移除本地初始化和补滚接入，保留必要的行为回归验证。
+
 ## 本地功能：DeepSeek 搜索与网页加载
 
 - **功能与参考**：工具“联网搜索”支持将 DeepSeek 作为搜索引擎，调用 DeepSeek Search API（`POST https://api.deepseek.com/v1/tools/search`），参考 [DeepSeek 搜索文档](https://api-docs.deepseek.com/zh-cn/guides/search)。请求携带 Bearer API 密钥、用户查询、`count`（限制为 1 至 50）和 `need_content: true`；结果优先使用 `summary`，其次使用 `snippet` 或 `content`，并沿用现有域名过滤逻辑。

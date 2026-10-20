@@ -49,28 +49,30 @@
 		($sessionUser.role === 'admin' || ($sessionUser.permissions?.chat?.import ?? true));
 
 	$: if ($page.params.id) {
-		(async () => {
-			if (await loadSharedChat()) {
-				loaded = true;
-				await tick();
-				const target = $page.url.searchParams.get('message');
-				if (target && history.messages[target]) {
-					autoScroll = false;
-					history.currentId = getDeepestChildId(history, target);
-					await tick();
-					await messagesComponent?.scrollToMessage(target);
-				} else messagesComponent?.scrollToBottom();
-			} else if (localStorage.token) {
-				await goto('/');
-			} else {
-				await goto(`/auth?redirect=${encodeURIComponent($page.url.pathname)}`);
-			}
-		})();
+		initializeSharedChat();
 	}
 
 	//////////////////////////
 	// Web functions
 	//////////////////////////
+
+	const initializeSharedChat = async () => {
+		if (await loadSharedChat()) {
+			loaded = true;
+			await tick();
+			const target = $page.url.searchParams.get('message');
+			if (target && history.messages[target]) {
+				autoScroll = false;
+				history.currentId = getDeepestChildId(history, target);
+				await tick();
+				await messagesComponent?.scrollToMessage(target);
+			} else messagesComponent?.scrollToBottom();
+		} else if (localStorage.token) {
+			await goto('/');
+		} else {
+			await goto(`/auth?redirect=${encodeURIComponent($page.url.pathname)}`);
+		}
+	};
 
 	const loadSharedChat = async () => {
 		const token = localStorage.token ?? '';
@@ -220,6 +222,10 @@
 			<div
 				class="@container flex flex-col w-full flex-auto overflow-auto h-0"
 				id="messages-container"
+				on:scroll={(event) => {
+					const element = event.currentTarget;
+					autoScroll = element.scrollHeight - element.scrollTop <= element.clientHeight + 5;
+				}}
 			>
 				<header
 					class="sticky top-0 z-30 mx-auto w-full max-w-[58rem] shrink-0 bg-white px-2 dark:bg-gray-900"

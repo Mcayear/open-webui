@@ -146,15 +146,17 @@
 
 	export const scrollToBottom = () => {
 		const element = getMessagesContainer();
-		if (element) {
+		if (element && autoScroll) {
 			element.scrollTop = element.scrollHeight;
 
 			// Re-scroll across two frames as content-visibility resolves message heights.
 			requestAnimationFrame(() => {
-				if (element) {
+				if (element && autoScroll) {
 					element.scrollTop = element.scrollHeight;
 					requestAnimationFrame(() => {
-						element.scrollTop = element.scrollHeight;
+						if (autoScroll) {
+							element.scrollTop = element.scrollHeight;
+						}
 					});
 				}
 			});
