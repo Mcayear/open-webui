@@ -52,7 +52,7 @@
 
 	export let topPadding = false;
 	export let bottomPadding = false;
-	export let autoScroll;
+	export let autoScroll: boolean;
 	export let messagesContainerId = 'messages-container';
 
 	export let onSelect = (e) => {};

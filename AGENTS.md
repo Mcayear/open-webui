@@ -9,19 +9,19 @@
 
 # 待上游覆盖的本地修复
 
-核对日期：2026-10-17。以下以本仓库当前已合并的上游 `v0.12.3`（`91ea4e342`）为基准，不能据此认定之后的上游版本仍有问题。下次合并必须针对新的目标版本重新验证。
+核对日期：2026-10-26。以下以本仓库当前已合并的上游 `v0.12.4`（`33c1978d5`）为基准，不能据此认定之后的上游版本仍有问题。下次合并必须针对新的目标版本重新验证。本次逐项核对、保留和清理依据见 `docs/upstream-v0.12.4-merge.md`。
 
 ## 1. MinerU 图片保留、内部文件存储与检索视觉输入
 
-- **问题与上游状态**：`v0.12.3` 的云端解析仍只读取结果 ZIP 中的 Markdown，图片相对路径在 ZIP 清理后失效；MinerU 4.x 自托管 V1 API 会主动删除 Markdown data URI 图片和 HTML `<img>`。支持 4.x API 本身不代表图片问题已解决。本次在原始 `v0.12.3` 上重新运行验证，4 个图片保留场景仍未通过，入库图片转换和检索视觉传递也未覆盖；保留对应本地补丁及接入。上游已有的文件权限检查继续沿用。
+- **问题与上游状态**：2026-10-26 对原始 `v0.12.4` 重新运行 9 项加载器测试，云端 ZIP、4.x Markdown/HTML 内嵌图片及纯图片文档的 4 项仍失败；原始入库与检索路径也未覆盖内部图片存储和视觉传递。保留图片补丁及接入，同时采用上游新增的 4.x Bearer API 密钥认证。上游文件权限检查继续沿用。
 - **本地行为**：云端 ZIP 图片在清理前转成 data URI；4.x Markdown 内嵌图片保留，HTML 内嵌图片转换成 Markdown；入库时把图片保存为内部文件并替换引用，小图片同样保存；检索命中图片时按用户权限读取，去重后附加到支持视觉的模型输入。
 - **实现位置**：`backend/open_webui/retrieval/loaders/mineru.py` 的 `_inline_zip_images`、`_MinerUImageParser`、`_preserve_v1_image`；`backend/open_webui/routers/retrieval.py` 的图片入库接入；`backend/open_webui/utils/files.py` 的 `min_replacement_url_length` 参数；`backend/open_webui/utils/middleware.py` 的 `extract_source_images`、`add_images_to_last_user_message` 及 `apply_source_context_to_messages`、`process_chat_payload` 中的图片接入。
-- **验证**：`python -m unittest discover -s tests -p test_mineru_images.py -v`，依赖 `requests`、`fastapi`、`langchain-core`。覆盖云端 ZIP 相对路径及 URL 编码、4.x Markdown/HTML 内嵌图片、纯图片文档，以及 3.x 兼容、超时和 Markdown 大小限制。另须验证入库后图片成为 `/api/v1/files/.../content` 引用（含小图片），有权限的视觉模型收到去重图片，关闭视觉能力时不附加图片，文件权限检查仍生效；现有加载器测试不能替代这些链路验证。2026-10-17 合并后，9 项加载器测试在 Python 3.11/3.12 均通过；在隔离存储边界下执行实际入库图片处理代码和检索消息接入代码，验证小图片存储、重复引用和已有附件去重、关闭视觉能力时不读取图片，以及所有者、管理员、显式授权、未授权和匿名访问权限。
+- **验证**：`python -m unittest discover -s tests -p test_mineru_images.py -v`，依赖 `requests`、`fastapi`、`langchain-core`。覆盖云端 ZIP 相对路径及 URL 编码、4.x Markdown/HTML 内嵌图片、纯图片文档，以及 3.x 兼容、超时和 Markdown 大小限制。另须验证入库后图片成为 `/api/v1/files/.../content` 引用（含小图片），有权限的视觉模型收到去重图片，关闭视觉能力时不附加图片，文件权限检查仍生效；现有加载器测试不能替代这些链路验证。2026-10-17 合并后，9 项加载器测试在 Python 3.11/3.12 均通过；在隔离存储边界下执行实际入库图片处理代码和检索消息接入代码，验证小图片存储、重复引用和已有附件去重、关闭视觉能力时不读取图片，以及所有者、管理员、显式授权、未授权和匿名访问权限。 2026-10-26 合并后，46 项后端回归测试在 Python 3.11/3.12 均通过；针对实际 `index_file` 的图片转换块和 `process_chat_payload` 的检索消息接入块执行隔离验证，小图片存储、权限、去重、关闭视觉能力不读取图片均通过。
 - **清理条件**：上游分别覆盖云端图片、4.x 内嵌图片、内部文件存储、检索视觉传递后，按实际覆盖范围移除对应补丁及专属接入。保留目标上游的 MinerU API 实现、错误处理和大小限制。移除自定义文件转换参数前检查所有调用点，清理专属测试及 `.github/workflows/backend.yaml` 中不再适用的测试接入，并保留其余回归验证。
 
 ## 2. Markdown 加粗闭合兼容
 
-- **问题与上游状态**：`v0.12.3` 的消息 Markdown 渲染仍没有覆盖中文标点或尾随空格后的 `**` 闭合场景，例如 `**中文。**测试`、`**English. **Test`，会显示原始星号而不能按预期加粗。本次使用原始组件的全部 Marked 扩展注册和锁定的 Marked 9.1.6 验证，35 个场景中 17 个未通过；保留本地扩展及注册。
+- **问题与上游状态**：2026-10-26 使用原始 `v0.12.4` 消息组件的全部 Marked 扩展、`breaks: true` 配置和锁定的 Marked 9.1.6 验证 35 个场景，17 个仍未通过。中文标点或尾随空格后的 `**`（例如 `**中文。**测试`、`**English. **Test`）仍不能按预期加粗；保留本地扩展及注册。
 - **本地行为**：通过 `relaxedStrong` 扩展补充上述加粗场景，并优先保留 Marked 的标准解析；代码、链接、HTML 属性和转义中的星号不应错误地闭合加粗。
 - **实现位置**：`src/lib/utils/marked/strong-extension.ts`；`src/lib/components/chat/Messages/Markdown.svelte` 中的导入和 `marked.use(relaxedStrong)` 注册。
 - **验证**：`npm run test:frontend -- --run src/lib/utils/marked/strong-extension.test.ts`。核对中英文标点、尾随空格、紧邻后续文字、多段加粗、内部斜体/代码，以及代码块、链接、HTML、转义、三重星号、未闭合片段和流式补齐后的渲染。验证上游时应移除本地扩展注册，使用目标上游实际的 Markdown 渲染路径和依赖版本。
@@ -29,26 +29,26 @@
 
 ## 3. Responses API 推理努力参数转换
 
-- **问题与上游状态**：`v0.12.3` 的 `convert_to_responses_payload` 仍没有转换 `reasoning_effort`。连接选择 Responses 接口、模型高级配置设置推理努力（例如 `gpt-6.1-sol` 的自定义 `xhigh`）后，仍发送 Chat Completions 的顶层字段，兼容服务报 `Unsupported parameter: reasoning_effort`。2026-10-16 实测 `v0.12.2` 原始请求返回 HTTP 400。2026-10-17 对原始 `v0.12.3` 的实际路由进行提供商边界隔离验证，流式/非流式与原生推理选项组合的 6 个 Responses 场景均仍发送顶层字段；保留本地映射。
+- **问题与上游状态**：2026-10-26 对原始 `v0.12.4` 的实际路由进行提供商边界隔离验证，从模型高级配置传入推理努力后，流式/非流式与原生 reasoning 选项组合的 6 个 Responses 场景均仍发送顶层 `reasoning_effort`；保留本地映射。Chat Completions 的 6 个对照场景正常。兼容服务会拒绝该顶层字段；2026-10-16 对 `v0.12.2` 的真实请求曾返回 HTTP 400。
 - **本地行为**：仅在 Chat Completions 转 Responses 时移除顶层 `reasoning_effort`，把非空值映射到 `reasoning.effort`；保留 `reasoning.summary` 等原生选项，已显式配置的原生 `reasoning.effort` 优先；未设置时不添加推理配置。Chat Completions 接口继续使用顶层字段，不限制模型名或努力值。
 - **实现位置**：`backend/open_webui/routers/openai.py` 的 `convert_to_responses_payload` 中推理努力转换代码。
-- **验证**：`python -m unittest discover -s tests -p test_openai_responses.py -v`，仅需 Python 标准库。8 项测试覆盖流式/非流式请求、自定义努力值、原生选项保留与优先级、空值和 Chat Completions 兼容。2026-10-16 实测修复后两种请求均返回 HTTP 200 并完成，返回的 `reasoning.effort` 均为 `xhigh`。2026-10-17 合并后，8 项测试在 Python 3.11/3.12 均通过；从模型高级配置经实际路由到最终提供商请求的 12 个隔离场景均通过，覆盖 Responses/Chat Completions、流式/非流式、原生 summary 保留和原生 effort 优先。本次未重复调用真实模型服务。升级时仍须验证从模型高级配置到最终 Responses 请求的实际路径；不要将 API 密钥写入文档或测试。
+- **验证**：`python -m unittest discover -s tests -p test_openai_responses.py -v`，仅需 Python 标准库。8 项测试覆盖流式/非流式请求、自定义努力值、原生选项保留与优先级、空值和 Chat Completions 兼容。2026-10-16 实测修复后两种请求均返回 HTTP 200 并完成，返回的 `reasoning.effort` 均为 `xhigh`。2026-10-17 合并后，8 项测试在 Python 3.11/3.12 均通过；从模型高级配置经实际路由到最终提供商请求的 12 个隔离场景均通过，覆盖 Responses/Chat Completions、流式/非流式、原生 summary 保留和原生 effort 优先。本次未重复调用真实模型服务。升级时仍须验证从模型高级配置到最终 Responses 请求的实际路径；不要将 API 密钥写入文档或测试。 2026-10-26 在合并后的实际路由上重验上述 12 个隔离场景，全部通过，未调用真实模型服务。
 - **清理条件**：目标上游已把高级配置中的推理努力正确传递为 Responses 原生参数，且上述场景通过后，移除本地映射代码，保留上游转换实现；同步调整只依赖旧函数或旧路径的测试，避免重复转换或覆盖原生配置。
 
-## 4. 分享聊天页面滚动置底
+## 4. 分享聊天页面延迟补滚中断（上游已覆盖初始化）
 
-- **问题与上游状态**：分享聊天路由的响应式初始化块直接引用 `history` 和消息组件，在加载聊天后更新 `history` 会再次触发初始化，重复请求分享内容并反复置底；`v0.12.3` 原始实现未覆盖。2026-10-20 在提交 `91ea4e342` 的原始路由和消息组件上用隔离分享接口复现，短时间内重复请求并阻止向上滚动；保留本地修复。
-- **本地行为**：分享聊天同一 URL 只初始化一次；滚动容器同步更新 `autoScroll`，用户向上滚动后停止延迟补滚和自动置底；消息链接定位和页面切换继续可用。
-- **实现位置**：`src/routes/s/[id]/+page.svelte` 的初始化函数和滚动处理；`src/lib/components/chat/Messages.svelte` 的延迟补滚检查。
-- **验证**：使用隔离分享接口运行原始/修复版本对照，原始版本出现约 2800 次重复请求，修复版本只请求 1 次；修复版本向上滚动后位置稳定，继续加载较早消息、切换分享页和消息链接定位均通过，页面无运行时异常。`npx prettier --check src/lib/components/chat/Messages.svelte 'src/routes/s/[id]/+page.svelte'` 和 `git diff --check` 通过；完整 `npm run check` 仍受仓库既有类型错误影响。
-- **清理条件**：上游原始分享聊天初始化不再因 `history` 更新重复执行，并覆盖用户滚动中断自动置底后，按实际覆盖范围移除本地初始化和补滚接入，保留必要的行为回归验证。
+- **问题与上游状态**：上游 `v0.12.4` 已将分享聊天初始化提取为 `loadAndScroll`，原始路由与消息组件的隔离浏览器验证确认初始化只请求 1 次，加载早期消息、切换页面和消息链接定位可用。已删除本地 `initializeSharedChat` 并采用上游初始化。上游仍未在滚动容器更新 `autoScroll`，消息组件的两帧补滚仍无中断检查；控制动画帧并在首帧后向上滚动，原始实现仍强制置底，因此保留这两部分本地补丁。
+- **本地行为**：滚动容器同步更新 `autoScroll`，用户向上滚动后停止延迟补滚和自动置底；分享聊天初始化沿用上游。
+- **实现位置**：`src/routes/s/[id]/+page.svelte` 的滚动处理；`src/lib/components/chat/Messages.svelte` 的延迟补滚检查。
+- **验证**：2026-10-26 用原始/合并后的实际分享路由和消息组件编译隔离浏览器用例，两者初始化均只请求 1 次；向上滚动稳定，加载早期消息、页面切换和消息链接定位均通过，无运行时异常。直接执行实际 `scrollToBottom` 函数并控制动画帧，首帧后向上滚动，原始实现再次置底，合并版保持用户位置。`npm run build`、39 项前端单元测试及相关 Prettier 检查通过；完整 `npm run check` 的基线对比见合并记录。
+- **清理条件**：上游在原始分享页和消息组件覆盖用户滚动中断延迟补滚后，移除剩余本地滚动事件和补滚检查，保留必要行为回归验证。初始化已采用 `v0.12.4` 上游实现，不再维护本地初始化函数。
 
 ## 5. Sub-agent 转发当前消息中的图片附件
 
-- **问题与上游状态**：聊天页会把图片保存在 `metadata['user_message']['files']`，而 `metadata['files']` 可能只包含文档类附件。原始 `delegate` 只在 `metadata['files']` 中按 `file_ids` 查找，因此主模型可见的图片 ID 会被错误报告为不可用，sub-agent 在创建前即失败。2026-10-20 核对上游 `dev` 原始提交 `079fb19e7`，其实现仍只查 `metadata['files']`，未覆盖当前消息附件；保留本地修复。
+- **问题与上游状态**：聊天页会把图片保存在 `metadata['user_message']['files']`，而 `metadata['files']` 可能只包含文档类附件。2026-10-26 对原始 `v0.12.4` 的实际 `delegate` 运行当前消息图片场景，仍返回 `file_ids not attached or unavailable: image-1`，在创建 sub-agent 前失败；保留本地附件选择修复。
 - **本地行为**：按 `file_ids` 从顶层附件及当前用户消息附件合并查找，按文件 ID/URL 去重，只向 sub-agent 转发所请求的附件，并继续逐项报告确实缺失的 ID。选中的图片随 sub-agent 用户消息和内部完成请求保存，使既有消息加载流程能够将图片 URL 转成模型视觉输入。
 - **实现位置**：`backend/open_webui/utils/subagents.py` 的 `_file_reference_values`、`_get_attached_files`、`_select_requested_files` 及 `delegate` 的附件选择；`tests/test_subagents_files.py`。
-- **验证**：运行 `python -m unittest discover -s tests -p test_subagents_files.py -v`、`python -m py_compile backend/open_webui/utils/subagents.py tests/test_subagents_files.py` 和 `git diff --check`。覆盖仅存在于当前用户消息的图片、顶层附件兼容、`id`/`url`/嵌套 `file.id` 匹配、重复引用、仅转发请求附件及准确报告缺失 ID。确认附件进入 sub-agent 的 `user_message.files`、聊天记录及内部完成请求；上游核对使用 `079fb19e7` 的原始实现，而非本地修复后的代码。
+- **验证**：运行 `python -m unittest discover -s tests -p test_subagents_files.py -v`、`python -m py_compile backend/open_webui/utils/subagents.py tests/test_subagents_files.py` 和 `git diff --check`。覆盖仅存在于当前用户消息的图片、顶层附件兼容、`id`/`url`/嵌套 `file.id` 匹配、重复引用、仅转发请求附件及准确报告缺失 ID。确认附件进入 sub-agent 的 `user_message.files`、聊天记录及内部完成请求；上游核对使用目标 `v0.12.4`（`33c1978d5`）的原始实现，而非本地修复后的代码。 2026-10-26 合并后 6 项附件回归测试通过，包括实际 delegate 的聊天记录与内部完成请求传递。
 - **清理条件**：目标上游原始 `delegate` 支持从当前用户消息附件查找 `file_ids`，且图片经过 sub-agent 聊天持久化后进入模型视觉输入时，按实际覆盖范围移除本地选择逻辑及其专属测试，保留必要行为回归验证。
 
 ## 本地功能：DeepSeek 搜索与网页加载
@@ -59,4 +59,4 @@
 - **配置**：搜索与网页加载共用 `DEEPSEEK_SEARCH_API_KEY`，未设置时兼容读取 `DEEPSEEK_API_KEY`。管理界面在联网搜索引擎和网页加载引擎列表中提供 DeepSeek；只选择 DeepSeek 网页加载时仍可单独填写同一敏感 API 密钥，不要求搜索引擎也使用 DeepSeek。
 - **实现位置**：`backend/open_webui/retrieval/web/deepseek.py` 的 Search 客户端与结果转换；`backend/open_webui/retrieval/web/utils.py` 的 `SafeDeepSeekLoader` 和 `get_web_loader` 注册；`backend/open_webui/retrieval/utils.py` 的聊天 URL 抓取配置读取；`backend/open_webui/config.py` 的配置项；`backend/open_webui/routers/retrieval.py` 的搜索提供商注册；`src/lib/components/admin/Settings/WebSearch.svelte` 及 `src/lib/i18n/locales/{en-US,zh-CN}/translation.json` 的管理界面和翻译；`tests/test_deepseek_search.py`、`tests/test_deepseek_fetch.py` 的回归测试；`README.md` 的配置说明。
 - **验证**：运行 `python -m unittest discover -s tests -p 'test_deepseek_*.py' -v`、相关 Python 编译检查、`uvx ruff format --check`（修改的 Python 文件）、`uvx ruff check tests/test_deepseek_fetch.py`、`npx prettier --check`（修改的前端和文档）、`uv lock --check --offline --python 3.12` 以及 `git diff --check`。Fetch 测试依赖 `requests`、`fastapi`、`langchain-core`、`markdown-it-py` 和 `beautifulsoup4`。测试覆盖搜索请求和结果字段回退，以及 Fetch 认证、Markdown 解析与引用来源、转义标题/强调/链接/HTML 字面量、实体解码、表格与链接图片 URL、段落列表和换行、行内/多行/引用内代码、不同长度和未闭合围栏、缩进代码、字面量反斜杠、同步/异步路径、超时与请求速率、URL 过滤、部分失败、解析后为空的正文、认证/余额/策略错误、日志脱敏和聊天 URL 配置传递到实际 `fetch_url` 工具返回值；使用隔离的 HTTP 边界，不替代真实服务验证，不得写入真实 API 密钥。
-- **上游核对**：已在上游 `dev` 提交 `079fb19e7`（2026-10-18 核对）原始实现中搜索 DeepSeek Search/Fetch 提供商、配置、加载器和管理界面，未发现对应支持，因此保留本地实现。后续合并或升级上游时，必须针对新的目标 `dev` 提交重新检查 API 路径、配置回退、提供商与加载器注册、界面选项和行为测试；若上游覆盖其中部分内容，只移除已被覆盖的本地接入，并保留必要的回归测试。
+- **上游核对**：2026-10-26 检查目标 `v0.12.4`（`33c1978d5`）及当日 `dev`（`7b303cf49`）原始实现的 DeepSeek Search/Fetch API 路径、配置、提供商、加载器和管理界面，仍无对应支持，因此保留本地实现及 Markdown 解析。合并后 23 项 Search/Fetch 回归测试在 Python 3.11/3.12 均通过，覆盖实际 `fetch_url` 工具返回值。适配上游关闭搜索时隐藏配置的行为：只要选择 DeepSeek 网页加载，搜索关闭或搜索引擎不为 DeepSeek 时仍显示共享密钥输入。后续合并或升级上游时，必须针对新的目标 `dev` 提交重新检查 API 路径、配置回退、提供商与加载器注册、界面选项和行为测试；若上游覆盖其中部分内容，只移除已被覆盖的本地接入，并保留必要的回归测试。

@@ -48,15 +48,16 @@
 		$sessionUser &&
 		($sessionUser.role === 'admin' || ($sessionUser.permissions?.chat?.import ?? true));
 
+	// Reading history here would rerun this on every history change.
 	$: if ($page.params.id) {
-		initializeSharedChat();
+		loadAndScroll();
 	}
 
 	//////////////////////////
 	// Web functions
 	//////////////////////////
 
-	const initializeSharedChat = async () => {
+	const loadAndScroll = async () => {
 		if (await loadSharedChat()) {
 			loaded = true;
 			await tick();
