@@ -55,6 +55,14 @@
 - **验证**：运行 `python -m unittest discover -s tests -p test_subagents_files.py -v`、`python -m py_compile backend/open_webui/utils/subagents.py tests/test_subagents_files.py` 和 `git diff --check`。覆盖仅存在于当前用户消息的图片、顶层附件兼容、`id`/`url`/嵌套 `file.id` 匹配、重复引用、仅转发请求附件及准确报告缺失 ID。确认附件进入 sub-agent 的 `user_message.files`、聊天记录及内部完成请求；上游核对使用目标 `v0.12.4`（`33c1978d5`）的原始实现，而非本地修复后的代码。 2026-10-26 合并后 6 项附件回归测试通过，包括实际 delegate 的聊天记录与内部完成请求传递。
 - **清理条件**：目标上游原始 `delegate` 支持从当前用户消息附件查找 `file_ids`，且图片经过 sub-agent 聊天持久化后进入模型视觉输入时，按实际覆盖范围移除本地选择逻辑及其专属测试，保留必要行为回归验证。
 
+## 6. 首次访问时前端模块下载失败的受限恢复
+
+- **问题与上游状态**：2026-10-29 在 Edge 禁用缓存后重复首次加载，复现空白 `500: Internal Error`。浏览器对 `/_app/immutable/nodes/2.DRYrkJGT.js` 报 `net::ERR_CONNECTION_ABORTED`，随后抛出 `TypeError: Failed to fetch dynamically imported module`；对应 Nginx 请求为 200，未发现对应后端 500。原始上游 `v0.12.4`（`33c1978d5`）没有客户端错误恢复 hook；当前锁定 SvelteKit 的模块加载异常路径只在检测到新版本时重新导航，同版本瞬时失败仍显示错误页。底层连接中断原因尚未确定，本补丁处理其前端恢复。
+- **本地行为**：客户端错误 hook 保留原始 `console.error`。仅针对浏览器动态模块下载的 TypeError，重新导航到原目标 URL（包括查询和片段）；使用 sessionStorage 在导航前记录时间，同一标签页 60 秒内最多自动恢复一次，连续失败显示原始错误。存储不可用时不自动恢复。普通 API 请求失败、语法错误及其他运行时异常不触发重新加载。
+- **实现位置**：`src/hooks.client.ts`；`src/lib/utils/module-load-recovery.ts`；`src/lib/utils/module-load-recovery.test.ts`、`src/hooks.client.test.ts`。
+- **验证**：`npm run test:frontend -- --run` 的 57 项测试通过，其中 18 项恢复测试覆盖 Chromium/Firefox/Safari 错误信息、跨页面重试限制及到期、无关异常、存储读取/写入失败、损坏标记、导航失败、当前 URL 含锚点时的真实刷新、跨路由目标保留和原始错误日志。另须通过生产构建和浏览器受控模块阻断验证：单次阻断解除后自动恢复；持续阻断只重新加载一次后停在错误页；保留目标 URL 与原始日志。上游核对时应移除本地 hook，在目标上游原始加载路径上执行同样场景，不能仅凭存在自动更新逻辑认定已覆盖。
+- **清理条件**：上游原始加载流程能够从同版本瞬时模块下载失败恢复，同时限制持续失败重试并保留诊断信息后，移除本地 hook、恢复工具及专属测试，保留必要的行为回归验证。
+
 ## 本地功能：DeepSeek 搜索与网页加载
 
 - **功能与参考**：工具“联网搜索”支持将 DeepSeek 作为搜索引擎，调用 DeepSeek Search API（`POST https://api.deepseek.com/v1/tools/search`），参考 [DeepSeek 搜索文档](https://api-docs.deepseek.com/zh-cn/guides/search)。请求携带 Bearer API 密钥、用户查询、`count`（限制为 1 至 50）和 `need_content: true`；结果优先使用 `summary`，其次使用 `snippet` 或 `content`，并沿用现有域名过滤逻辑。
