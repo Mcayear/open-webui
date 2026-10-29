@@ -1,7 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no">
 	<head>
 		<meta charset="utf-8" />
+		<meta name="google" content="notranslate" />
+		<script>
+			// Set the language before the app and its translation bundles finish loading.
+			(() => {
+				const languages = [new URLSearchParams(window.location.search).get('lang')];
+				try {
+					languages.push(localStorage.getItem('locale'));
+				} catch {
+					// Browser language remains available when storage access is denied.
+				}
+				languages.push(...(navigator.languages || []), navigator.language, 'en');
+				for (const language of languages) {
+					if (!language) continue;
+					try {
+						document.documentElement.lang = Intl.getCanonicalLocales(language)[0];
+						break;
+					} catch {
+						// Ignore malformed preferences and try the next language.
+					}
+				}
+			})();
+		</script>
 		<!-- LICENSE covers this Open WebUI branding surface, including name, logo,
 		visual, textual, symbolic identifiers, metadata, and surrounding UI.
 		Do not alter, remove, obscure, or replace it except as LICENSE permits:
