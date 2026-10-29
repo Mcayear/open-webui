@@ -17,7 +17,7 @@ from open_webui.models.users import UserModel, Users
 from open_webui.tasks import create_task, has_active_tasks
 from open_webui.utils.auth import VERIFIED_USER_ROLES, create_token
 from open_webui.utils.json_codec import JSONCodec
-from open_webui.utils.misc import add_or_update_system_message, get_message_list
+from open_webui.utils.misc import add_or_update_system_message, get_message_list, is_raster_image_content_type
 from open_webui.utils.tool_search import strip_deferred_tools_manifest
 from starlette.datastructures import Headers
 
@@ -43,56 +43,6 @@ _background_active: set[str] = set()
 _background_lock = asyncio.Lock()
 _foreground_semaphore: asyncio.Semaphore | None = None
 _parent_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
-
-
-def _file_reference_values(file: dict) -> set[str]:
-    if not isinstance(file, dict):
-        return set()
-
-    return {
-        str(value)
-        for value in (
-            file.get('id'),
-            file.get('url'),
-            file.get('file', {}).get('id') if isinstance(file.get('file'), dict) else None,
-        )
-        if value
-    }
-
-
-def _get_attached_files(metadata: dict) -> list[dict]:
-    """Return the current message's attachments from all request representations."""
-    user_message = metadata.get('user_message') or {}
-    sources = (
-        metadata.get('files') or [],
-        user_message.get('files') if isinstance(user_message, dict) else [],
-    )
-    attached_files = []
-    seen_files = set()
-
-    for source in sources:
-        if not isinstance(source, (list, tuple)):
-            continue
-        for file in source:
-            if not isinstance(file, dict):
-                continue
-            file_id = file.get('id') or (file.get('file', {}).get('id') if isinstance(file.get('file'), dict) else None)
-            key = ('id', str(file_id)) if file_id else ('url', str(file.get('url'))) if file.get('url') else None
-            key = key or ('value', JSONCodec.dumps(file, ensure_ascii=False, sort_keys=True))
-            if key in seen_files:
-                continue
-            seen_files.add(key)
-            attached_files.append(file)
-
-    return attached_files
-
-
-def _select_requested_files(metadata: dict, file_ids: set[str]) -> tuple[list[dict], list[str]]:
-    """Select only requested attachments and report IDs absent from the chat message."""
-    attached_files = _get_attached_files(metadata)
-    selected_files = [copy.deepcopy(file) for file in attached_files if _file_reference_values(file) & file_ids]
-    found_file_ids = set().union(*(_file_reference_values(file) for file in selected_files))
-    return selected_files, sorted(file_ids - found_file_ids)
 
 
 async def _build_request(source: Request, user_id: str, *, internal: bool) -> Request:
@@ -393,13 +343,38 @@ async def delegate(
         return 'Error: model context is required.'
     if run.get('direct'):
         return 'Error: sub-agents are unavailable for direct connections.'
+    delegated_files = []
     if file_ids:
         requested_file_ids = {str(file_id) for file_id in file_ids if file_id}
-        run['files'], missing_file_ids = _select_requested_files(metadata, requested_file_ids)
+        chat_messages = await Chats.get_messages_map_by_chat_id(parent_chat_id) or {}
+        # Photos are left out of the request's files, so also look on the chat's messages.
+        user_message = metadata.get('user_message') or {}
+        attached_files = [
+            *(metadata.get('files') or []),
+            *((user_message.get('files') or []) if isinstance(user_message, dict) else []),
+            *(
+                file
+                for message in chat_messages.values()
+                if message.get('role') == 'user'
+                for file in message.get('files') or []
+                if file.get('type') == 'image' or is_raster_image_content_type(file.get('content_type'))
+            ),
+        ]
+        found_file_ids = set()
+        for file in attached_files:
+            nested_file = file.get('file') if isinstance(file.get('file'), dict) else {}
+            keys = {str(value) for value in (file.get('id'), file.get('url'), nested_file.get('id')) if value}
+            if keys & requested_file_ids and not keys & found_file_ids:
+                delegated_files.append(copy.deepcopy(file))
+                found_file_ids |= keys
+        missing_file_ids = sorted(requested_file_ids - found_file_ids)
         if missing_file_ids:
             return f'Error: file_ids not attached or unavailable: {", ".join(missing_file_ids)}'
-    else:
-        run['files'] = []
+    run['files'] = [
+        file
+        for file in delegated_files
+        if file.get('type') != 'image' and not is_raster_image_content_type(file.get('content_type'))
+    ]
 
     delegation_id = f'deleg_{uuid4().hex[:8]}'
     foreground_semaphore = None
@@ -424,7 +399,7 @@ async def delegate(
         user_message_id = str(uuid4())
         assistant_message_id = str(uuid4())
         prompt = f'{task}\n\n## Context\n{context}' if context else task
-        prompt_files = copy.deepcopy(run.get('files') or [])
+        prompt_files = delegated_files
         user_message = {
             'id': user_message_id,
             'parentId': None,
@@ -553,6 +528,8 @@ async def delegate(
             if len(summary) > max_output:
                 summary = f'{summary[:max_output]}\n\n[output truncated]'
             error = message.get('error')
+            if isinstance(error, dict):
+                error = error.get('content') or 'Sub-agent failed.'
             return {
                 'status': 'error' if error else 'completed',
                 'summary': summary or ('Sub-agent produced no output.' if not error else ''),
@@ -740,5 +717,8 @@ async def delegate(
         return f'Error: {exc}'
 
     if result.get('status') != 'completed':
-        return f'Error: {result.get("error") or "sub-agent failed."}'
+        error_text = f'Error: {result.get("error") or "sub-agent failed."}'
+        if result.get('summary'):
+            return f'{error_text}\nPartial output:\n{result["summary"]}'
+        return error_text
     return result.get('summary') or 'Sub-agent produced no output.'

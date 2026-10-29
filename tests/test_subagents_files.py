@@ -1,4 +1,4 @@
-"""Sub-agent attachment selection regressions without loading the application."""
+"""Exercise actual delegation and image replay with isolated persistence and model IO."""
 
 import ast
 import asyncio
@@ -10,92 +10,23 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
-source_path = Path(__file__).resolve().parents[1] / 'backend/open_webui/utils/subagents.py'
-source = ast.parse(source_path.read_text(encoding='utf-8'))
-helpers = ast.Module(
-    body=[
-        node
-        for node in source.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in {'_file_reference_values', '_get_attached_files', '_select_requested_files', 'delegate'}
-    ],
-    type_ignores=[],
-)
+ROOT = Path(__file__).resolve().parents[1]
 namespace = {'asyncio': asyncio, 'copy': copy, 'JSONCodec': json, 'Request': object, 'time': time, 'uuid4': uuid4}
-exec(compile(helpers, str(source_path), 'exec'), namespace)
-select_requested_files = namespace['_select_requested_files']
+for relative, names in (
+    ('utils/misc.py', {'is_raster_image_content_type'}),
+    ('utils/subagents.py', {'delegate'}),
+):
+    path = ROOT / 'backend/open_webui' / relative
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    nodes = [
+        node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names
+    ]
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), namespace)
 delegate = namespace['delegate']
 
 
-class SubagentFilesTest(unittest.TestCase):
-    def test_keeps_support_for_files_present_only_in_request_metadata(self):
-        document = {'id': 'document-1', 'type': 'file'}
-
-        files, missing = select_requested_files({'files': [document]}, {'document-1'})
-
-        self.assertEqual(files, [document])
-        self.assertEqual(missing, [])
-
-    def test_selects_image_attached_to_the_current_user_message(self):
-        image = {
-            'id': 'image-1',
-            'type': 'image',
-            'content_type': 'image/png',
-            'url': '/api/v1/files/image-1/content',
-        }
-
-        files, missing = select_requested_files({'user_message': {'files': [image]}}, {'image-1'})
-
-        self.assertEqual(files, [image])
-        self.assertEqual(files[0]['type'], 'image')
-        self.assertEqual(missing, [])
-        self.assertIsNot(files[0], image)
-
-    def test_selects_only_requested_files_using_supported_reference_forms(self):
-        files_by_message = [
-            {'id': 'image-1', 'type': 'image', 'url': '/api/v1/files/image-1/content'},
-            {'url': '/api/v1/files/image-2/content', 'type': 'image'},
-            {'file': {'id': 'document-1'}, 'type': 'file'},
-            {'id': 'unrequested', 'type': 'image'},
-        ]
-
-        selected, missing = select_requested_files(
-            {'user_message': {'files': files_by_message}},
-            {'image-1', '/api/v1/files/image-2/content', 'document-1', 'missing'},
-        )
-
-        self.assertEqual(selected, files_by_message[:3])
-        self.assertEqual(missing, ['missing'])
-
-    def test_deduplicates_the_same_attachment_from_both_metadata_sources(self):
-        image = {'id': 'image-1', 'type': 'image', 'url': '/api/v1/files/image-1/content'}
-
-        selected, missing = select_requested_files(
-            {'files': [image], 'user_message': {'files': [copy.deepcopy(image)]}},
-            {'image-1'},
-        )
-
-        self.assertEqual(selected, [image])
-        self.assertEqual(missing, [])
-
-    def test_reports_all_requested_ids_missing_from_both_sources(self):
-        selected, missing = select_requested_files(
-            {'files': [{'id': 'available'}], 'user_message': {'files': []}},
-            {'not-attached-b', 'not-attached-a'},
-        )
-
-        self.assertEqual(selected, [])
-        self.assertEqual(missing, ['not-attached-a', 'not-attached-b'])
-
-
 class SubagentDelegationFilesTest(unittest.IsolatedAsyncioTestCase):
-    async def test_message_image_reaches_created_chat_and_completion_request(self):
-        image = {
-            'id': 'image-1',
-            'type': 'image',
-            'content_type': 'image/png',
-            'url': '/api/v1/files/image-1/content',
-        }
+    async def run_delegation(self, *, metadata=None, messages=None, file_ids=None):
         recorded = {}
 
         class ConfigStub:
@@ -116,17 +47,22 @@ class SubagentDelegationFilesTest(unittest.IsolatedAsyncioTestCase):
                 return None
 
             @staticmethod
+            async def get_messages_map_by_chat_id(chat_id):
+                return copy.deepcopy(messages or {})
+
+            @staticmethod
             async def insert_new_chat(chat_id, user_id, form_data, internal_meta=None):
-                recorded['chat'] = form_data.chat
+                recorded['chat'] = copy.deepcopy(form_data.chat)
                 return SimpleNamespace(id=chat_id)
 
             @staticmethod
             async def get_message_by_id_and_message_id(chat_id, message_id):
-                return {'content': 'Image reviewed'}
+                return {'content': 'Attachments reviewed'}
 
-        class ChatFormStub:
-            def __init__(self, *, chat):
-                self.chat = chat
+        class RequestStub:
+            def __init__(self, app):
+                self.app = app
+                self.state = SimpleNamespace()
 
         async def completion_handler(request, form_data, user=None):
             recorded['completion'] = copy.deepcopy(form_data)
@@ -137,17 +73,12 @@ class SubagentDelegationFilesTest(unittest.IsolatedAsyncioTestCase):
         async def create_task(redis, coroutine, id=None):
             return id, asyncio.create_task(coroutine)
 
-        class RequestStub:
-            def __init__(self, app):
-                self.app = app
-                self.state = SimpleNamespace()
-
         app = SimpleNamespace(state=SimpleNamespace(redis=None, CHAT_COMPLETION_HANDLER=completion_handler))
         namespace.update(
             {
                 'Config': ConfigStub,
                 'Chats': ChatsStub,
-                'ChatForm': ChatFormStub,
+                'ChatForm': lambda **kwargs: SimpleNamespace(**kwargs),
                 'UserModel': SimpleNamespace,
                 'DEFAULT_SUBAGENT_SYSTEM_PROMPT': 'Sub-agent instructions',
                 '_build_request': build_request,
@@ -156,30 +87,113 @@ class SubagentDelegationFilesTest(unittest.IsolatedAsyncioTestCase):
                 'create_task': create_task,
             }
         )
-
         result = await delegate(
-            'Describe the image',
+            'Review attachments',
             '',
             False,
-            file_ids=['image-1'],
+            file_ids=file_ids,
             request=RequestStub(app),
             user_data={'id': 'user-1'},
-            metadata={
-                'model_id': 'vision-model',
-                'user_message': {'files': [image]},
-            },
+            metadata={'model_id': 'vision-model', **(metadata or {})},
             parent_chat_id='parent-chat',
             parent_message_id='parent-message',
         )
+        return result, recorded
 
-        self.assertEqual(result, 'Image reviewed')
-        self.assertEqual(recorded['chat']['files'], [image])
-        saved_user_messages = [
-            message for message in recorded['chat']['history']['messages'].values() if message['role'] == 'user'
+    def assert_forwarded(self, recorded, files):
+        saved = [m for m in recorded['chat']['history']['messages'].values() if m['role'] == 'user']
+        self.assertEqual(saved[0].get('files', []), files)
+        self.assertEqual(recorded['completion']['user_message'].get('files', []), files)
+        documents = [
+            f
+            for f in files
+            if f.get('type') != 'image' and not namespace['is_raster_image_content_type'](f.get('content_type'))
         ]
-        self.assertEqual(saved_user_messages[0]['files'], [image])
-        self.assertEqual(recorded['completion']['files'], [image])
-        self.assertEqual(recorded['completion']['user_message']['files'], [image])
+        self.assertEqual(recorded['chat']['files'], files)
+        self.assertEqual(recorded['completion']['files'], documents)
+        return saved[0]
+
+    async def test_current_message_image_without_persisted_history_reaches_visual_replay(self):
+        image = {'id': 'image-1', 'type': 'image', 'url': '/api/v1/files/image-1/content'}
+        result, recorded = await self.run_delegation(
+            metadata={'user_message': {'files': [image]}}, file_ids=['image-1']
+        )
+        self.assertEqual(result, 'Attachments reviewed')
+        message = self.assert_forwarded(recorded, [image])
+
+        # Execute the real image replay loop used by process_chat_payload for saved messages.
+        path = ROOT / 'backend/open_webui/utils/middleware.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        function = next(
+            n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'process_chat_payload'
+        )
+        loop = next(
+            n
+            for n in ast.walk(function)
+            if isinstance(n, ast.For)
+            and isinstance(n.target, ast.Name)
+            and n.target.id == 'message'
+            and any(isinstance(c, ast.Name) and c.id == 'image_files' for c in ast.walk(n))
+        )
+        context = {
+            'form_data': {'messages': [message]},
+            'is_raster_image_content_type': namespace['is_raster_image_content_type'],
+        }
+        exec(compile(ast.Module(body=[loop], type_ignores=[]), str(path), 'exec'), context)
+        self.assertEqual(message['content'][1], {'type': 'image_url', 'image_url': {'url': image['url']}})
+
+    async def test_persisted_current_image_uses_upstream_lookup(self):
+        image = {'id': 'image-1', 'type': 'image', 'url': '/api/v1/files/image-1/content'}
+        result, recorded = await self.run_delegation(
+            messages={'current': {'role': 'user', 'files': [image]}}, file_ids=['image-1']
+        )
+        self.assertEqual(result, 'Attachments reviewed')
+        self.assert_forwarded(recorded, [image])
+
+    async def test_historical_image_recognized_by_content_type(self):
+        image = {'id': 'old-image', 'content_type': 'image/png', 'url': '/api/v1/files/old-image/content'}
+        result, recorded = await self.run_delegation(
+            messages={'old': {'role': 'user', 'files': [image]}}, file_ids=['old-image']
+        )
+        self.assertEqual(result, 'Attachments reviewed')
+        self.assert_forwarded(recorded, [image])
+
+    async def test_top_level_document_with_nested_file_id(self):
+        document = {'file': {'id': 'document-1'}, 'type': 'file'}
+        result, recorded = await self.run_delegation(metadata={'files': [document]}, file_ids=['document-1'])
+        self.assertEqual(result, 'Attachments reviewed')
+        self.assert_forwarded(recorded, [document])
+
+    async def test_deduplicates_metadata_current_message_and_persisted_image(self):
+        image = {'id': 'image-1', 'type': 'image', 'url': '/api/v1/files/image-1/content'}
+        metadata = {'files': [image], 'user_message': {'files': [copy.deepcopy(image)]}}
+        result, recorded = await self.run_delegation(
+            metadata=metadata,
+            messages={'current': {'role': 'user', 'files': [image]}},
+            file_ids=['image-1', image['url']],
+        )
+        self.assertEqual(result, 'Attachments reviewed')
+        self.assert_forwarded(recorded, [image])
+
+    async def test_selects_only_requested_url(self):
+        image = {'url': '/api/v1/files/image-1/content', 'type': 'image'}
+        result, recorded = await self.run_delegation(
+            metadata={'files': [image, {'id': 'unrequested', 'type': 'file'}]}, file_ids=[image['url']]
+        )
+        self.assertEqual(result, 'Attachments reviewed')
+        self.assert_forwarded(recorded, [image])
+
+    async def test_reports_all_missing_ids_before_creating_child_chat(self):
+        result, recorded = await self.run_delegation(
+            metadata={'files': [{'id': 'available'}]}, file_ids=['missing-b', 'missing-a']
+        )
+        self.assertEqual(result, 'Error: file_ids not attached or unavailable: missing-a, missing-b')
+        self.assertEqual(recorded, {})
+
+    async def test_omitting_file_ids_forwards_no_attachments(self):
+        result, recorded = await self.run_delegation(metadata={'files': [{'id': 'unrequested'}]})
+        self.assertEqual(result, 'Attachments reviewed')
+        self.assert_forwarded(recorded, [])
 
 
 if __name__ == '__main__':

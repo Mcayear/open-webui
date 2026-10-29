@@ -10,13 +10,13 @@
 
 # 待上游覆盖的本地修复
 
-基准为已合并的上游 `v0.12.4`（`33c1978d5`）；第 1–5 项核对于 2026-10-26，第 6–7 项核对于 2026-10-29。后续版本须重新验证，既有合并依据见 [v0.12.4 合并记录](docs/upstream-v0.12.4-merge.md)。各项实现位置、测试命令、场景和清理条件见对应详情。
+基准为已合并的上游 `v0.12.5`（`f7ac7ee10`）；全部条目核对于 2026-10-29。后续版本须重新验证，本次依据见 [v0.12.5 合并记录](docs/upstream-v0.12.5-merge.md)。各项实现位置、测试命令、场景和清理条件见对应详情。
 
 1. **MinerU 图片保留与检索视觉输入**：云端 ZIP、4.x 内嵌图片、内部文件存储及检索图片传递仍有本地补丁。涉及 MinerU、文件入库、图片权限或检索消息组装时核对。[详情](docs/local-changes.md#mineru-images)
 2. **Markdown 加粗闭合兼容**：补充中文标点、尾随空格后的 `**` 闭合，保护代码、链接和转义语义。涉及 Marked 升级或消息 Markdown 渲染时核对。[详情](docs/local-changes.md#markdown-strong)
 3. **Responses 推理努力参数转换**：将顶层 `reasoning_effort` 转为 `reasoning.effort`，保留原生配置优先级及 Chat Completions 行为。涉及 OpenAI 路由或高级参数转换时核对。[详情](docs/local-changes.md#responses-reasoning)
 4. **分享聊天延迟补滚中断**：初始化已采用上游；仍保留用户上滚后停止两帧补滚的修复。涉及分享页、消息滚动或 `autoScroll` 时核对。[详情](docs/local-changes.md#shared-chat-scroll)
-5. **Sub-agent 当前消息图片附件**：合并顶层与当前用户消息附件查找，仅转发请求的文件并准确报告缺失 ID。涉及 `delegate`、附件选择或 sub-agent 消息持久化时核对。[详情](docs/local-changes.md#subagent-images)
+5. **Sub-agent 当前消息图片附件**：历史消息图片查找、去重及转发已采用上游；仅补充当前请求尚未持久化的附件查找。涉及 `delegate`、附件选择或 sub-agent 消息持久化时核对。[详情](docs/local-changes.md#subagent-images)
 6. **模块下载失败恢复**：动态模块下载失败可能显示空白 500；同一标签页 60 秒内最多自动恢复一次并保留错误日志。涉及客户端 hook、路由、SvelteKit 升级或模块加载时核对；底层连接中断原因未确定。[详情](docs/local-changes.md#module-load-recovery)
 7. **页面语言与自动翻译提示**：在应用加载前设置 `html.lang`，通过 `translate="no"` 和 `google/notranslate` 声明无需浏览器翻译（也可能影响手动整页翻译）。涉及 HTML 模板、i18n 初始化或翻译策略时核对。[详情](docs/local-changes.md#document-language)
 
