@@ -20,6 +20,10 @@ export default defineConfig({
 					dest: 'licenses/encryption'
 				},
 				{
+					src: ['node_modules/@novnc/novnc/docs/LICENSE*', 'node_modules/@novnc/novnc/AUTHORS'],
+					dest: 'licenses/novnc'
+				},
+				{
 					src: 'node_modules/onnxruntime-web/dist/*.jsep.*',
 
 					dest: 'wasm'
@@ -33,7 +37,17 @@ export default defineConfig({
 		APP_BUILD_CHANNEL: JSON.stringify(buildInfo.channel)
 	},
 	build: {
-		sourcemap: process.env.USE_SLIM !== 'true'
+		target: 'es2022',
+		sourcemap: process.env.USE_SLIM !== 'true',
+		minify: 'terser',
+		terserOptions: {
+			compress: {
+				drop_console: process.env.ENV === 'dev' ? false : ['log', 'debug']
+			}
+		}
+	},
+	optimizeDeps: {
+		esbuildOptions: { target: 'es2022' }
 	},
 	server: {
 		proxy: {
@@ -63,8 +77,5 @@ export default defineConfig({
 	},
 	worker: {
 		format: 'es'
-	},
-	esbuild: {
-		pure: process.env.ENV === 'dev' ? [] : ['console.log', 'console.debug']
 	}
 });

@@ -46,6 +46,9 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
+      - name: Verify production console calls
+        run: node scripts/verify-production-logs.mjs
+
   # ── Vitest unit tests ────────────────────────────────────────────────────
   unit-tests:
     name: Unit Tests

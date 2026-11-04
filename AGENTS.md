@@ -6,11 +6,11 @@
 
 # 本地构建约定
 
-- 生产前端保留 `console.error`，移除 `console.log`、`console.debug`；涉及 `vite.config.ts` 或构建流程时核对。具体要求见 [构建约定](docs/local-changes.md#构建约定保留生产错误日志)。
+- 生产前端保留 `console.error`，移除 `console.log`、`console.debug`；涉及 `vite.config.ts` 或构建流程时核对。通过 Terser 选择性移除并在 CI 检查实际产物，具体要求见 [构建约定](docs/local-changes.md#构建约定保留生产错误日志)。
 
 # 待上游覆盖的本地修复
 
-基准为已合并的上游 `v0.12.5`（`f7ac7ee10`）；全部条目核对于 2026-10-29。后续版本须重新验证，本次依据见 [v0.12.5 合并记录](docs/upstream-v0.12.5-merge.md)。各项实现位置、测试命令、场景和清理条件见对应详情。
+基准为已合并的上游 `v0.13.0`（`c38885a1a`）；全部条目核对于 2026-11-04。后续版本须重新验证，本次依据见 [v0.13.0 合并记录](docs/upstream-v0.13.0-merge.md)。各项实现位置、测试命令、场景和清理条件见对应详情。
 
 1. **MinerU 图片保留与检索视觉输入**：云端 ZIP、4.x 内嵌图片、内部文件存储及检索图片传递仍有本地补丁。涉及 MinerU、文件入库、图片权限或检索消息组装时核对。[详情](docs/local-changes.md#mineru-images)
 2. **Markdown 加粗闭合兼容**：补充中文标点、尾随空格后的 `**` 闭合，保护代码、链接和转义语义。涉及 Marked 升级或消息 Markdown 渲染时核对。[详情](docs/local-changes.md#markdown-strong)
