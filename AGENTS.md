@@ -10,9 +10,9 @@
 
 # 待上游覆盖的本地修复
 
-基准为已合并的上游 `v0.13.0`（`c38885a1a`）；全部条目核对于 2026-11-04。后续版本须重新验证，本次依据见 [v0.13.0 合并记录](docs/upstream-v0.13.0-merge.md)。各项实现位置、测试命令、场景和清理条件见对应详情。
+基准为已合并的上游 `v0.13.3`（`b0e6098e9`）；全部条目核对于 2026-11-09。后续版本须重新验证，本次依据见 [v0.13.3 合并记录](docs/upstream-v0.13.3-merge.md)。各项实现位置、测试命令、场景和清理条件见对应详情。
 
-1. **MinerU 图片保留与检索视觉输入**：云端 ZIP、4.x 内嵌图片、内部文件存储及检索图片传递仍有本地补丁。涉及 MinerU、文件入库、图片权限或检索消息组装时核对。[详情](docs/local-changes.md#mineru-images)
+1. **MinerU 图片保留与检索视觉输入**：云端 ZIP（含新增的 4.1 Tasks API）、4.x 内嵌图片、内部文件存储及检索图片传递仍有本地补丁。涉及 MinerU、文件入库、图片权限或检索消息组装时核对。[详情](docs/local-changes.md#mineru-images)
 2. **Markdown 加粗闭合兼容**：补充中文标点、尾随空格后的 `**` 闭合，保护代码、链接和转义语义。涉及 Marked 升级或消息 Markdown 渲染时核对。[详情](docs/local-changes.md#markdown-strong)
 3. **Responses 推理努力参数转换**：将顶层 `reasoning_effort` 转为 `reasoning.effort`，保留原生配置优先级及 Chat Completions 行为。涉及 OpenAI 路由或高级参数转换时核对。[详情](docs/local-changes.md#responses-reasoning)
 4. **分享聊天延迟补滚中断**：初始化已采用上游；仍保留用户上滚后停止两帧补滚的修复。涉及分享页、消息滚动或 `autoScroll` 时核对。[详情](docs/local-changes.md#shared-chat-scroll)

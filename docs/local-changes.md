@@ -8,22 +8,25 @@
 
 前端生产构建保留 `console.error`，以便排查浏览器中的初始化和模块加载错误；继续移除 `console.log`、`console.debug`。实现位于 `vite.config.ts` 的 Terser `compress.drop_console`，仅移除 `log`、`debug`，`ENV=dev` 时保留日志。2026-11-04 实际检查 v0.13.0 合并产物，发现原 `esbuild.pure` 会留下返回值被使用、作为回调返回值等位置的 7 处 `console.log`，因此替换为选择性删除，新增直接开发依赖 `terser`。`scripts/verify-production-logs.mjs` 用 TypeScript AST 检查 `build/_app/immutable` 的全部 JS（包括 worker），要求保留错误调用且没有普通和调试调用；前端 CI 在生产构建后执行此检查。调整构建配置或合并上游时须验证实际产物，不能仅检查配置字符串。此项属于仓库构建约定。
 
-当前基准为上游 `v0.13.0`（`c38885a1a737da4968f157092f304f3b5481d0bf`），以下条目全部于 2026-11-04 重新核对。逐项原始上游对照和合并后验证见 [v0.13.0 合并记录](upstream-v0.13.0-merge.md)；此前取舍见 [v0.12.5 合并记录](upstream-v0.12.5-merge.md) 和 [v0.12.4 合并记录](upstream-v0.12.4-merge.md)。不能据此认定之后的上游版本仍有问题，下次合并必须重新验证。
+2026-11-09 合并 `v0.13.3` 后重新执行生产构建与产物检查：保留 676 处 `console.error`，`console.log`、`console.debug` 均为 0；上游新增的 PDF.js WASM 复制配置已保留。
+
+当前基准为上游 `v0.13.3`（`b0e6098e940942281d9c83f3529ea117287a3a22`），以下条目全部于 2026-11-09 重新核对。逐项原始上游对照和合并后验证见 [v0.13.3 合并记录](upstream-v0.13.3-merge.md)；此前取舍见 [v0.13.0 合并记录](upstream-v0.13.0-merge.md)、[v0.12.5 合并记录](upstream-v0.12.5-merge.md) 和 [v0.12.4 合并记录](upstream-v0.12.4-merge.md)。不能据此认定之后的上游版本仍有问题，下次合并必须重新验证。
 
 <a id="mineru-images"></a>
 
 ## 1. MinerU 图片保留、内部文件存储与检索视觉输入
 
-- **问题与上游状态**：2026-11-04 对原始 `v0.13.0` 重新运行 9 项加载器测试，云端 ZIP、4.x Markdown/HTML 内嵌图片及纯图片文档的 4 项仍失败（2 个断言失败、2 个错误）；实际 `index_file` 仍无入库图片转换，检索消息也无图片接入。保留图片补丁，沿用上游 API、认证和文件权限实现。原始上游及合并版的所有者、管理员、显式授权、未授权和匿名图片读取边界验证通过。
+- **问题与上游状态**：2026-11-09 对原始 `v0.13.3` 重新运行原有 9 项加载器测试，云端 ZIP、4.x Markdown/HTML 内嵌图片及纯图片文档的 4 项仍失败（2 个断言失败、2 个错误）；实际 `index_file` 仍无入库图片转换，检索消息也无图片接入。上游新增 MinerU 4.1 Tasks API，本地 ZIP 图片内联会被该路径复用。隔离执行原始权限读取函数时，所有者、管理员、显式授权、未授权和匿名边界均通过。保留图片补丁，沿用上游 API、认证和文件权限实现。
 - **本地行为**：云端 ZIP 图片在清理前转成 data URI；4.x Markdown 内嵌图片保留，HTML 内嵌图片转换成 Markdown；入库时把图片保存为内部文件并替换引用，小图片同样保存；检索命中图片时按用户权限读取，去重后附加到支持视觉的模型输入。
 - **实现位置**：`backend/open_webui/retrieval/loaders/mineru.py` 的 `_inline_zip_images`、`_MinerUImageParser`、`_preserve_v1_image`；`backend/open_webui/routers/retrieval.py` 的图片入库接入；`backend/open_webui/utils/files.py` 的 `min_replacement_url_length` 参数；`backend/open_webui/utils/middleware.py` 的 `extract_source_images`、`add_images_to_last_user_message` 及 `apply_source_context_to_messages`、`process_chat_payload` 中的图片接入。
-- **验证**：`python -m unittest discover -s tests -p test_mineru_images.py -v`，依赖 `requests`、`fastapi`、`langchain-core`。覆盖云端 ZIP 相对路径及 URL 编码、4.x Markdown/HTML 内嵌图片、纯图片文档，以及 3.x 兼容、超时和 Markdown 大小限制。另须验证入库后图片成为 `/api/v1/files/.../content` 引用（含小图片），有权限的视觉模型收到去重图片，关闭视觉能力时不附加图片，文件权限检查仍生效；现有加载器测试不能替代这些链路验证。2026-10-17 合并后，9 项加载器测试在 Python 3.11/3.12 均通过；在隔离存储边界下执行实际入库图片处理代码和检索消息接入代码，验证小图片存储、重复引用和已有附件去重、关闭视觉能力时不读取图片，以及所有者、管理员、显式授权、未授权和匿名访问权限。 2026-10-26 合并后，46 项后端回归测试在 Python 3.11/3.12 均通过；针对实际 `index_file` 的图片转换块和 `process_chat_payload` 的检索消息接入块执行隔离验证，小图片存储、权限、去重、关闭视觉能力不读取图片均通过。
+- **验证**：`python -m unittest discover -s tests -p test_mineru_images.py -v`，依赖 `requests`、`fastapi`、`langchain-core`。覆盖云端 ZIP 相对路径及 URL 编码、4.x Markdown/HTML 内嵌图片、纯图片文档、4.1 Tasks API 的 ZIP 图片及外部存储密钥边界，以及 3.x 兼容、超时和 Markdown 大小限制。2026-11-09 合并版 10 项加载器测试通过；新增用例执行实际 4.1 路由、ZIP 下载与图片内联，确认外部上传/下载不带 MinerU API 密钥。另在隔离存储边界执行实际 `index_file` 图片转换块、检索消息接入块及图片读取函数：小图片成为 `/api/v1/files/.../content` 引用，有权限的视觉模型收到去重图片，关闭视觉能力时不读取图片，五类权限检查生效；其他调用者的默认转换长度阈值不变。此前 2026-10-17 和 2026-10-26 的同类隔离验证也通过。
 - **清理条件**：上游分别覆盖云端图片、4.x 内嵌图片、内部文件存储、检索视觉传递后，按实际覆盖范围移除对应补丁及专属接入。保留目标上游的 MinerU API 实现、错误处理和大小限制。移除自定义文件转换参数前检查所有调用点，清理专属测试及 `.github/workflows/backend.yaml` 中不再适用的测试接入，并保留其余回归验证。
 
 <a id="markdown-strong"></a>
 
 ## 2. Markdown 加粗闭合兼容
 
+- **v0.13.3 复核**：目标消息组件仍使用 Marked 9.1.6 与 `breaks: true`，原始实现对 `**中文。**测试` 和 `**English. **Test` 仍输出原始星号；合并版 35 项扩展测试通过。保留扩展和注册。
 - **问题与上游状态**：2026-11-04 使用原始 `v0.13.0` 消息组件的全部 Marked 扩展、`breaks: true` 配置和锁定的 Marked 9.1.6 验证 35 个场景，17 个仍未通过。中文标点或尾随空格后的 `**`（例如 `**中文。**测试`、`**English. **Test`）仍不能按预期加粗；保留本地扩展及注册。合并版相同实际渲染配置的 35 项均通过。
 - **本地行为**：通过 `relaxedStrong` 扩展补充上述加粗场景，并优先保留 Marked 的标准解析；代码、链接、HTML 属性和转义中的星号不应错误地闭合加粗。
 - **实现位置**：`src/lib/utils/marked/strong-extension.ts`；`src/lib/components/chat/Messages/Markdown.svelte` 中的导入和 `marked.use(relaxedStrong)` 注册。
@@ -34,6 +37,7 @@
 
 ## 3. Responses API 推理努力参数转换
 
+- **v0.13.3 复核**：在原始目标的实际转换函数上运行 8 项回归，7 项失败；从模型高级配置经实际路由至隔离提供商边界的 12 项场景中，原始上游 6 个 Responses 场景仍发送顶层 `reasoning_effort`，6 个 Chat Completions 对照通过。合并版转换函数 8 项和路由 12 项均通过，保留映射及原生选项优先级。
 - **问题与上游状态**：2026-11-04 对原始 `v0.13.0` 实际路由进行提供商边界隔离验证，从模型高级配置传入推理努力后，流式/非流式与原生 reasoning 选项组合的 6 个 Responses 场景仍发送顶层 `reasoning_effort`；6 个 Chat Completions 对照场景正常。保留本地映射，合并版全部 12 个路由场景通过。上游新增的 Responses 用量、拒绝及结束原因处理完整保留。兼容服务会拒绝该顶层字段；2026-10-16 对 `v0.12.2` 的真实请求曾返回 HTTP 400。
 - **本地行为**：仅在 Chat Completions 转 Responses 时移除顶层 `reasoning_effort`，把非空值映射到 `reasoning.effort`；保留 `reasoning.summary` 等原生选项，已显式配置的原生 `reasoning.effort` 优先；未设置时不添加推理配置。Chat Completions 接口继续使用顶层字段，不限制模型名或努力值。
 - **实现位置**：`backend/open_webui/routers/openai.py` 的 `convert_to_responses_payload` 中推理努力转换代码。
@@ -44,6 +48,7 @@
 
 ## 4. 分享聊天页面延迟补滚中断（上游已覆盖初始化）
 
+- **v0.13.3 复核**：直接执行原始/合并版消息组件的实际 `scrollToBottom`，首帧后上滚到 100 并运行剩余动画帧，原始版回到底部 1000，合并版保持 100；原始分享容器仍无滚动事件同步。继续保留事件绑定和两帧中断检查，初始化继续采用上游。
 - **问题与上游状态**：上游 `v0.12.4` 已将分享聊天初始化提取为 `loadAndScroll`，此前原始路由与消息组件的隔离浏览器验证确认初始化只请求 1 次，加载早期消息、切换页面和消息链接定位可用；已采用上游初始化并删除本地 `initializeSharedChat`。2026-11-04 验证原始 `v0.13.0` 的实际滚动函数：首帧后将用户位置设为 100，上游后续帧置底到 1000，分享容器仍未同步 `autoScroll`；合并版执行实际滚动处理并绑定状态后保持 100。因此继续保留滚动事件与两帧中断检查。
 - **本地行为**：滚动容器同步更新 `autoScroll`，用户向上滚动后停止延迟补滚和自动置底；分享聊天初始化沿用上游。
 - **实现位置**：`src/routes/s/[id]/+page.svelte` 的滚动处理；`src/lib/components/chat/Messages.svelte` 的延迟补滚检查。
@@ -54,6 +59,7 @@
 
 ## 5. Sub-agent 转发当前请求中尚未持久化的图片附件
 
+- **v0.13.3 复核**：在原始 `delegate` 上运行 8 项实际函数回归，只有当前请求未持久化图片失败；合并版 8 项通过。上游新增的工具批准提示清理和客户端地址调整已保留，本地仍仅补充当前消息附件候选。
 - **问题与上游状态**：2026-11-04 验证原始 `v0.13.0` 的实际 `delegate`：8 项回归中 7 项通过，仅存在于 `metadata.user_message.files`、尚未持久化的图片仍返回 `file_ids not attached or unavailable: image-1`。保留当前请求附件的两行补充；当前/历史持久化附件查找、去重和转发沿用上游，同时保留 v0.13.0 新增的子代理模型选择和限额语义。合并版 8 项通过，包含子聊天持久化后通过实际消息回放块进入视觉输入。
 - **本地行为与实现位置**：`backend/open_webui/utils/subagents.py` 的 `delegate` 仅比目标上游增加两行：读取当前 `user_message`，将其中附件加入上游候选列表。匹配、去重、历史图片查找和转发完全沿用上游；已删除本地 `_file_reference_values`、`_get_attached_files`、`_select_requested_files`。图片保存在子聊天及 `user_message.files`，内部完成请求顶层 `files` 仅含非图片附件；既有消息加载流程将用户消息中的图片转成视觉输入。
 - **验证**：`python -m unittest discover -s tests -p test_subagents_files.py -v`、Python 编译和 `git diff --check`。8 项测试执行实际 `delegate`，覆盖请求中未持久化图片、已持久化当前图片、通过 MIME 识别的历史图片、顶层文档嵌套 ID、跨来源去重、按 URL 只选择所请求附件、准确且排序的缺失 ID，以及省略 `file_ids` 不转发。首项继续执行实际 `process_chat_payload` 图片回放块，确认子聊天保存后图片进入视觉消息。合并版在 Python 3.11/3.12 各 8 项通过；原始上游只失败于请求中未持久化图片。数据库与模型调用使用隔离边界，未调用真实模型服务。
@@ -63,6 +69,7 @@
 
 ## 6. 首次访问时前端模块下载失败的受限恢复
 
+- **v0.13.3 复核**：原始目标仍没有 `src/hooks.client.ts`，客户端模块下载失败没有专属恢复入口；SvelteKit 版本未变。合并版 18 项 hook/恢复测试通过，生产构建和错误日志产物检查通过。本次未重跑浏览器受控模块阻断场景。
 - **问题与上游状态**：2026-11-04 原始上游 `v0.13.0`（`c38885a1a`）仍没有客户端错误恢复 hook。以目标锁定依赖构建原始生产站点，在 Edge 无缓存上下文中阻断 `/auth` 路由模块，原始实现显示 `500: Internal Error`，仅请求文档 1 次，没有自动恢复。合并版短暂失败后重载一次并恢复中文登录页；持续失败时共请求文档 2 次后停止，并保留模块错误日志、查询和片段。保留受限恢复补丁。此前 2026-10-29 首次访问曾复现 `net::ERR_CONNECTION_ABORTED`，Nginx 对应请求为 200，未发现后端 500；底层连接中断原因仍未确定。
 - **本地行为**：客户端错误 hook 保留原始 `console.error`。仅针对浏览器动态模块下载的 TypeError，重新导航到原目标 URL（包括查询和片段）；使用 sessionStorage 在导航前记录时间，同一标签页 60 秒内最多自动恢复一次，连续失败显示原始错误。存储不可用时不自动恢复。普通 API 请求失败、语法错误及其他运行时异常不触发重新加载。
 - **实现位置**：`src/hooks.client.ts`；`src/lib/utils/module-load-recovery.ts`；`src/lib/utils/module-load-recovery.test.ts`、`src/hooks.client.test.ts`。
@@ -73,6 +80,7 @@
 
 ## 7. 页面语言初始化与浏览器自动翻译提示
 
+- **v0.13.3 复核**：执行原始和合并版 HTML 的最早内联脚本，在中文浏览器偏好下原始 `html.lang=en` 且无翻译声明，合并版为 `zh-CN` 并包含两项声明；6 项初始化测试通过。保留早期脚本与声明。
 - **问题与上游状态**：2026-11-04 执行原始上游 `v0.13.0`（`c38885a1a`）HTML 的最早内联脚本，在中文浏览器偏好下初始语言仍为 `en`，没有无需翻译声明；异步 `languageChanged` 继续负责最终标签。保留早期语言初始化和翻译声明，同时采用上游新增的移动端原生滚动条脚本。合并版早期语言为 `zh-CN`，生产页面恢复加载后也为 `zh-CN`。`lang` 是语言提示，不能保证浏览器不弹出翻译提示。
 - **本地行为**：在 head 最早的内联脚本中，按 URL `lang`、已保存的 `locale`、浏览器语言顺序设置有效的标准语言标签，最终界面语言继续由现有 i18n 初始化与切换流程同步（包括服务端默认语言）。存储不可用或偏好格式损坏时继续回退。通过 HTML `translate="no"` 和 `google/notranslate` 元信息声明该应用无需浏览器翻译，避免自动翻译已本地化的界面及改写聊天内容；此声明也会影响遵循它的浏览器手动整页翻译。
 - **实现位置**：`src/app.html` 的 HTML 属性、翻译元信息和语言初始化脚本；`src/lib/i18n/document-language.test.ts`。
@@ -83,6 +91,7 @@
 
 ## 本地功能：DeepSeek 搜索与网页加载
 
+- **v0.13.3 复核**：目标标签及 2026-11-09 的上游 `dev`（`77d3d1c3141303ba0aaed436c08f24208345ac09`）仍没有 Search/Fetch API 路径、配置、提供商/加载器注册或管理界面选项；保留全部本地接入。合并版 23 项 Search/Fetch 测试通过，上游对聊天网页抓取路径的改动已由实际 `fetch_url` 用例覆盖。
 - **功能与参考**：工具“联网搜索”支持将 DeepSeek 作为搜索引擎，调用 DeepSeek Search API（`POST https://api.deepseek.com/v1/tools/search`），参考 [DeepSeek 搜索文档](https://api-docs.deepseek.com/zh-cn/guides/search)。请求携带 Bearer API 密钥、用户查询、`count`（限制为 1 至 50）和 `need_content: true`；结果优先使用 `summary`，其次使用 `snippet` 或 `content`，并沿用现有域名过滤逻辑。
 - **网页加载**：独立选择 `WEB_LOADER_ENGINE=deepseek` 后，调用 `POST https://api.deepseek.com/v1/tools/fetch`，发送单个 `url`，将返回的 Markdown `content` 转为文档并保留原始 URL 和标题。沿用现有 URL 安全检查、超时（默认 60 秒）、代理和 SSL 设置；每个加载器的请求速率不超过 5 次/秒，并接受更低的配置值。单页加载失败可继续处理其他页面，全部失败或认证、余额、安全策略错误应明确报错；同步与异步加载均支持。
 - **Fetch Markdown 解析修复**：2026-10-20 使用真实 Fetch 接口抓取 `https://ip.cn/tianqi/hunan/yueyang/miluo/202610.html`，确认提供商返回的正文包含 304 个 Markdown 标点转义；原样传递源码会使 LLM 上下文包含多余反斜杠。本地加载器通过 `SafeDeepSeekLoader._normalize_content` 使用 `markdown-it-py` 按 CommonMark 和表格语法解析，再通过 BeautifulSoup 提取可读文本，替换旧的正则清理实现。转义标题 `\#\#\#` 在文本中成为 `###`；保留代码内容中的反斜杠、段落与换行、表格单元格分隔，以及链接文字、图片说明和 URL；普通文本中的双反斜杠按 Markdown 语义解析为单个反斜杠，不做 Unicode 或 JSON 的二次解码。创建的文档、同步/异步抓取及聊天 `fetch_url` 工具均使用解析后的文本。实测正文由 4283 字符变为 3977 字符，反斜杠由 304 个变为 0 个；可见正文、860 个换行、原标题和来源 URL 保持一致，另去除两个行尾空格。新增直接依赖 `markdown-it-py==4.2.0`，完整和 slim 安装清单、锁文件及测试依赖安装同步更新。该问题来自本地 Fetch 接入原样传递 Markdown 源码；后续若上游新增对应加载器，需在上游原始实现上验证此场景和最终工具返回值，再决定是否移除此处理。

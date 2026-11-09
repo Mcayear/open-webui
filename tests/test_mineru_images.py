@@ -119,6 +119,53 @@ class MinerUImagesTest(unittest.TestCase):
                 loader._request_v1_api('GET', '/v1/parse/jobs/job-1')
         self.assertEqual(error.exception.status_code, 504)
 
+    def test_tasks_api_preserves_zip_images_without_leaking_api_key_to_storage(self):
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, 'w') as archive:
+            archive.writestr('document/full.md', '![chart](images/plot%201.png)')
+            archive.writestr('document/images/plot 1.png', IMAGE_BYTES)
+
+        loader = mineru.MinerULoader(str(self.pdf), api_url='http://mineru.example', api_key='test-key')
+        replies = [
+            response(
+                {
+                    'task_id': 'task-1',
+                    'files': [{'upload': {'url': 'https://storage.example/upload', 'headers': {'X-Upload': 'token'}}}],
+                }
+            ),
+            response({}),
+            response(
+                {
+                    'task_id': 'task-1',
+                    'status': 'completed',
+                    'files': [
+                        {
+                            'result_url': 'https://storage.example/results.zip',
+                            'parse': {'tier': 'standard', 'parser_version': '4.1'},
+                        }
+                    ],
+                }
+            ),
+        ]
+        with (
+            patch.object(
+                mineru.requests,
+                'get',
+                side_effect=[
+                    response({'features': ['task_output_formats']}),
+                    response(content=archive_bytes.getvalue()),
+                ],
+            ) as get,
+            patch.object(mineru.requests, 'request', side_effect=replies) as request,
+        ):
+            documents = loader.load()
+
+        self.assertEqual(documents[0].page_content, f'![chart]({IMAGE_URI})')
+        self.assertEqual(documents[0].metadata['version'], '4.1')
+        self.assertEqual(request.call_args_list[1].args[:2], ('PUT', 'https://storage.example/upload'))
+        self.assertEqual(request.call_args_list[1].kwargs['headers'], {'X-Upload': 'token'})
+        self.assertIsNone(get.call_args_list[1].kwargs['headers'])
+
     def cloud_documents(self, markdown, max_markdown_bytes=None):
         archive_bytes = io.BytesIO()
         with zipfile.ZipFile(archive_bytes, 'w') as archive:
