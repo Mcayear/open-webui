@@ -110,6 +110,15 @@
 - **验证**：运行 `python -m unittest discover -s tests -p 'test_deepseek_*.py' -v`、相关 Python 编译检查、`uvx ruff format --check`（修改的 Python 文件）、`uvx ruff check tests/test_deepseek_fetch.py`、`npx prettier --check`（修改的前端和文档）、`uv lock --check --offline --python 3.12` 以及 `git diff --check`。Fetch 测试依赖 `requests`、`fastapi`、`langchain-core`、`markdown-it-py` 和 `beautifulsoup4`。测试覆盖搜索请求和结果字段回退，以及 Fetch 认证、Markdown 解析与引用来源、转义标题/强调/链接/HTML 字面量、实体解码、表格与链接图片 URL、段落列表和换行、行内/多行/引用内代码、不同长度和未闭合围栏、缩进代码、字面量反斜杠、同步/异步路径、超时与请求速率、URL 过滤、部分失败、解析后为空的正文、认证/余额/策略错误、日志脱敏和聊天 URL 配置传递到实际 `fetch_url` 工具返回值；使用隔离的 HTTP 边界，不替代真实服务验证，不得写入真实 API 密钥。
 - **上游核对**：2026-11-04 检查目标 `v0.13.0`（`c38885a1a`）及当日 `dev`（`7cd0f14110520144c2ecfe807037329b41509f78`）原始实现的 API 路径、密钥与回退配置、提供商/加载器注册和管理界面，仍无 DeepSeek Search/Fetch 支持，因此保留全部本地接入及 Markdown 解析。合并后 Python 3.11/3.12 各 23 项 Search/Fetch 测试通过，包含实际 `fetch_url` 工具返回值。只选择 DeepSeek 网页加载时，搜索关闭或搜索引擎不为 DeepSeek 仍可填写共享敏感密钥。后续升级须针对新的目标 `dev` 重新逐项核对；部分覆盖时只移除已被覆盖的本地接入，保留必要行为回归。
 
+<a id="email-password-reset"></a>
+
+## 本地功能：邮件重置密码
+
+- 部署：在私有环境变量或仓库根目录 `.env` 设置 `PASSWORD_RESET_SMTP_PASSWORD`。空值和 `re_xxxxxx` 均禁用入口和接口。其他 SMTP 变量见 `.env.example`；默认使用 `Chat <no-replay@9991565.xyz>`、`smtp.resend.com:465`、用户名 `resend`，并校验 TLS 证书。默认 Compose 需要重建并重新创建 `open-webui` 服务，其他部署方式需显式注入变量。
+- 边界：启用前确认本地账号登记的是用户控制的真实邮箱，尤其是管理员账号。仅允许已启用密码登录和登录表单的实例；排除受信头、OAuth/SCIM 关联和没有本地密码哈希的账号。请求接口对未登记和不符合条件的地址返回同一结果；按来源 IP 和收件地址限流，有 Redis 时跨进程共享。
+- 实现：`backend/open_webui/routers/password_reset.py`、`backend/open_webui/models/auths.py`、登录页及 `PasswordReset.svelte`。96 位随机重置码有效期 15 分钟，仅存摘要及绑定邮箱；新码替代旧码。凭据行的条件更新保证单次消费，沿用密码策略、会话撤销与断开连接，不移除已注册的 MFA。
+- 回归：在已安装后端依赖的环境运行 `python tests/test_password_reset.py`（隔离 SQLite，模拟投递）。上线后用测试账号验收真实邮件。合并上游时分别验证申请/确认、邮件投递、外部身份隔离、重复提交和会话失效，按实际覆盖范围清理。
+
 ## v0.12.5 本次验证补充
 
 2026-10-29 合并版在 Python 3.11/3.12 各通过 48 项后端回归，前端 63 项回归通过。重新执行实际 `index_file` 图片转换块、检索消息接入和权限检查，小图片内部存储、视觉开关及去重均通过；实际 OpenAI 路由至提供商边界的 12 个场景通过。原始上游缺少入库图片转换，6 个 Responses 场景仍发送顶层推理努力。受控动画帧验证原始上游上滚后置底至 1000，合并版保持 100；原始 HTML 早期语言为 `en`，合并版为 `zh-CN` 且声明无需翻译。原始上游生产构建中阻断路由模块后显示 500，只有一次文档请求，没有自动恢复。生产构建与发布、类型检查基线及服务验证范围见本次合并记录。

@@ -87,10 +87,11 @@ from pydantic import BaseModel, Field, StrictStr, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from open_webui.routers import sessions
+from open_webui.routers import password_reset, sessions
 
 router = APIRouter(route_class=MfaRoute)
 router.include_router(sessions.router, prefix='/sessions')
+router.include_router(password_reset.router, prefix='/password-reset')
 
 log = logging.getLogger(__name__)
 

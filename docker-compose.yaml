@@ -23,6 +23,12 @@ services:
     environment:
       - 'OLLAMA_BASE_URL=http://ollama:11434'
       - 'WEBUI_SECRET_KEY='
+      - 'PASSWORD_RESET_SMTP_PASSWORD=${PASSWORD_RESET_SMTP_PASSWORD:-}'
+      - 'PASSWORD_RESET_SMTP_HOST=${PASSWORD_RESET_SMTP_HOST:-smtp.resend.com}'
+      - 'PASSWORD_RESET_SMTP_PORT=${PASSWORD_RESET_SMTP_PORT:-465}'
+      - 'PASSWORD_RESET_SMTP_USERNAME=${PASSWORD_RESET_SMTP_USERNAME:-resend}'
+      - 'PASSWORD_RESET_SMTP_NAME=${PASSWORD_RESET_SMTP_NAME:-Chat}'
+      - 'PASSWORD_RESET_SMTP_FROM=${PASSWORD_RESET_SMTP_FROM:-no-replay@9991565.xyz}'
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped

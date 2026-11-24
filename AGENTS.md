@@ -22,4 +22,6 @@
 
 # 本地功能
 
+- **本地账号邮件重置密码**：登录页使用 SMTP 一次性重置码。涉及登录、改密、MFA 状态、会话撤销或 SMTP 配置时核对[维护详情](docs/local-changes.md#email-password-reset)。
+
 - **DeepSeek 搜索与网页加载**：Search/Fetch API 接入，共享敏感密钥，独立网页加载选择，以及 Fetch Markdown 转可读文本。涉及搜索提供商、网页加载、URL 安全、配置、管理界面或依赖时阅读 [详情](docs/local-changes.md#deepseek-search-fetch)。合并上游时也须针对新的目标 `dev` 检查部分覆盖情况并验证，按实际范围保留或移除。

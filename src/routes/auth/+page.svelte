@@ -3,6 +3,8 @@
 
 	import DOMPurify from 'dompurify';
 	import MfaChallengeForm from '$lib/components/auth/MfaChallenge.svelte';
+	import PasswordReset from '$lib/components/auth/PasswordReset.svelte';
+	let resettingPassword = false;
 	import { mfaRequest, type MfaChallenge } from '$lib/apis/auths/mfa';
 	let mfaChallenge: MfaChallenge | null = null;
 	let pendingApproval = false;
@@ -288,6 +290,8 @@
 							}}
 						/>
 					</div>
+				{:else if resettingPassword}
+					<PasswordReset bind:email onClose={() => (resettingPassword = false)} />
 				{:else if pendingApproval}
 					<p class="my-auto text-sm text-gray-500 dark:text-gray-400">
 						{$i18n.t('Your account is awaiting administrator approval.')}
@@ -494,6 +498,18 @@
 												{/if}
 											</button>
 
+											{#if mode === 'signin' && $config?.features.enable_password_reset && !$config?.onboarding}
+												<button
+													type="button"
+													class="mt-4 text-[0.8125rem] underline"
+													on:click={() => {
+														password = '';
+														resettingPassword = true;
+													}}
+												>
+													{$i18n.t('Forgot password?')}
+												</button>
+											{/if}
 											{#if $config?.features.enable_signup && !($config?.onboarding ?? false)}
 												<div class=" mt-4 text-[0.8125rem] leading-5 text-center">
 													{mode === 'signin'

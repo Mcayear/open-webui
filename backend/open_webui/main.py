@@ -2454,6 +2454,7 @@ async def get_app_config(request: Request):
             'auth': WEBUI_AUTH,
             'auth_trusted_header': bool(WEBUI_AUTH_TRUSTED_EMAIL_HEADER),
             'enable_signup_password_confirmation': ENABLE_SIGNUP_PASSWORD_CONFIRMATION,
+            'enable_password_reset': auths.password_reset.enabled(config.get('ui.enable_login_form')),
             'enable_ldap': config.get('ldap.enable'),
             'enable_signup': config.get('ui.enable_signup'),
             'enable_login_form': config.get('ui.enable_login_form'),

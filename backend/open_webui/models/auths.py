@@ -47,6 +47,10 @@ class MfaResetTicket(BaseModel):
     expires_at: int
 
 
+class PasswordResetTicket(MfaResetTicket):
+    email: str
+
+
 class MfaChallenge(BaseModel):
     token_hash: str
     type: Literal['enroll', 'verify', 'replace', 'recover']
@@ -71,6 +75,7 @@ class MfaData(BaseModel):
     manage_challenge: MfaChallenge | None = None
     reset_required: bool = False
     reset_ticket: MfaResetTicket | None = None
+    password_reset: PasswordResetTicket | None = Field(default=None, exclude_if=lambda ticket: ticket is None)
     limits: dict[str, MfaLimit] = Field(default_factory=dict)
 
 
@@ -228,6 +233,7 @@ class AuthsTable:
         mfa.login_challenge = None
         mfa.manage_challenge = None
         mfa.reset_ticket = None
+        mfa.password_reset = None
         mfa.revision = str(uuid.uuid4())
         return mfa.model_dump(mode='json')
 
@@ -245,6 +251,7 @@ class AuthsTable:
                 Auth.id == auth.id,
                 Auth.active.is_(True),
                 Auth.password == auth.password,
+                Auth.email == auth.email,
                 Auth.session_stamp == auth.session_stamp,
                 revision == expected if expected is not None else revision.is_(None),
             )
@@ -410,6 +417,7 @@ class AuthsTable:
                 return False
             state = auth.mfa.model_copy(deep=True) if auth.mfa else MfaData()
             state.login_challenge = state.manage_challenge = state.reset_ticket = None
+            state.password_reset = None
             updated = await self.update_mfa_by_id(auth, state, revoke=True, db=session)
             if updated is None:
                 raise ValueError('Authentication changed in another request. Please try again.')
