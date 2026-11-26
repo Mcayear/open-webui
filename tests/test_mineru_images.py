@@ -166,11 +166,13 @@ class MinerUImagesTest(unittest.TestCase):
         self.assertEqual(request.call_args_list[1].kwargs['headers'], {'X-Upload': 'token'})
         self.assertIsNone(get.call_args_list[1].kwargs['headers'])
 
-    def cloud_documents(self, markdown, max_markdown_bytes=None):
+    def cloud_documents(self, markdown, max_markdown_bytes=None, page_data=None):
         archive_bytes = io.BytesIO()
         with zipfile.ZipFile(archive_bytes, 'w') as archive:
             archive.writestr('document/full.md', markdown)
             archive.writestr('document/images/plot 1.png', IMAGE_BYTES)
+            if page_data is not None:
+                archive.writestr('document/content_list.json', json.dumps(page_data))
         loader = mineru.MinerULoader(
             str(self.pdf), api_mode='cloud', api_key='test-key', max_markdown_bytes=max_markdown_bytes
         )
@@ -187,6 +189,19 @@ class MinerUImagesTest(unittest.TestCase):
     def test_cloud_images_survive_zip_cleanup_with_url_encoded_paths(self):
         documents = self.cloud_documents('![chart](images/plot%201.png "caption")\nText')
         self.assertEqual(documents[0].page_content, f'![chart]({IMAGE_URI})\nText')
+
+    def test_cloud_page_split_keeps_images_and_page_metadata(self):
+        headings = ['First page with an extracted chart', 'Second page with another extracted chart']
+        markdown = '\n'.join(f'# {heading}\n![chart](images/plot%201.png)' for heading in headings)
+        documents = self.cloud_documents(
+            markdown,
+            page_data=[{'page_idx': page, 'text': heading} for page, heading in enumerate(headings)],
+        )
+        self.assertEqual(len(documents), 2)
+        for page, document in enumerate(documents):
+            self.assertEqual(document.page_content, f'# {headings[page]}\n![chart]({IMAGE_URI})')
+            self.assertEqual(document.metadata['page'], page)
+            self.assertEqual(document.metadata['page_label'], page + 1)
 
     def test_cloud_keeps_missing_external_and_outside_paths_unchanged(self):
         for path in ('missing.png', '../../outside.png', 'https://example.com/x.png', '/api/v1/files/id/content'):
